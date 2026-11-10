@@ -238,6 +238,9 @@ plus the submodule.
 - Gradle CMake build produced `libnativevpn.so` for both ABIs.
 - Debug, release (R8), lint, unit tests, and instrumentation-test APK builds
   completed.
-- Crypto self-test and live engine behavior are covered by instrumentation
-  tests that require a device/emulator; see `docs/testing.md`. They have not
-  been executed in this environment.
+- Crypto self-test, native session lifecycle, Keystore, and profile import were
+  executed on an Android 11 x86_64 emulator (5 instrumentation tests, all pass).
+- A real tunnel was established against a controlled OpenVPN 2.7 server:
+  TLS 1.3 / AES-256-GCM, TUN `10.8.0.2`, MTU 1500, ICMP to `10.8.0.1` through
+  the tunnel, and clean disconnect removing the TUN route. See
+  `docs/testing.md`. Physical-device and leak tests remain pending.

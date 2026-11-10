@@ -12,14 +12,15 @@ transport sockets with `VpnService.protect()`, and reports only engine-derived
 connection state. It is not a mock UI and does not implement its own VPN
 protocol or cryptography.
 
-> **Verification status:** GitHub Actions passes on `main`; debug and signed
-> release APKs build successfully; JVM tests, Android lint, R8, and the
-> instrumentation-test APK build pass.
-> A live tunnel has **not** been verified in this development environment
-> because no physical Android device or controlled OpenVPN server was
-> available. See [docs/testing.md](docs/testing.md) for the exact verification
-> matrix and the remaining device tests. Do not treat a UI "Connected" state in
-> an untested build as proof that traffic is tunneled.
+> **Verification status (v1.0.2):** app launch, profile import, native engine
+> self-test, native session lifecycle, and a **real OpenVPN tunnel** were tested
+> on an Android 11 x86_64 emulator against a controlled OpenVPN 2.7 server.
+> The TUN address was `10.8.0.2`, ICMP to `10.8.0.1` traversed the tunnel, and
+> disconnect removed the TUN route. JVM tests, lint, R8, both ABI native
+> builds, and GitHub Actions pass. Physical-device, IPv6, DNS-leak, invalid
+> certificate, and network-transition tests remain pending; see
+> [docs/testing.md](docs/testing.md). Do not treat a UI "Connected" state alone
+> as proof of tunneling.
 
 ## Features
 
@@ -50,6 +51,19 @@ protocol or cryptography.
 - **Validation / success / error / empty states** across import, connection,
   IP check, self-test, profiles, and logs.
 - **Two ABIs** built from source: `arm64-v8a` and `x86_64`.
+
+## Screenshots
+
+Captured from the Android 11 x86_64 emulator during the real-tunnel test
+(debug build):
+
+| Home | Profiles |
+|---|---|
+| ![Connected home](docs/screenshots/home-connected.png) | ![Profiles](docs/screenshots/profiles.png) |
+
+| Settings | Diagnostics |
+|---|---|
+| ![Settings](docs/screenshots/settings.png) | ![Diagnostics](docs/screenshots/diagnostics.png) |
 
 ## Architecture at a glance
 

@@ -2,6 +2,28 @@
 
 All notable changes to this project are documented here.
 
+## [1.0.2] - 2026-11-10
+
+### Fixed
+
+- Fixed an Activity field initialization crash (`getMainExecutor()` before
+  `attachBaseContext`) that prevented the app from launching.
+- Added an explicit `androidx.fragment` dependency so Compose activity-result
+  launchers work with `FragmentActivity`/BiometricPrompt (SAF import crash).
+- Fixed the critical TunBuilder wiring: `OvpnClient` now delegates the
+  `TunBuilderBase` virtuals to `AndroidTunBuilder`, allowing the Android TUN to
+  be created and packets to flow.
+- Hardened service connect/disconnect races and duplicate connection requests.
+- Enabled and parsed the real mbedTLS self-test, and fixed the success/failure
+  result parsing.
+
+### Verified
+
+- Real tunnel on Android 11 x86_64 emulator against OpenVPN 2.7:
+  TLS 1.3, AES-256-GCM, TUN 10.8.0.2, ICMP through tunnel, clean disconnect.
+- 5 instrumentation tests pass on the emulator.
+- Published v1.0.0/v1.0.1 are superseded.
+
 ## [1.0.1] - 2026-11-10
 
 ### Changed

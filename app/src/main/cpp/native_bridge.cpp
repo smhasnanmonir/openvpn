@@ -769,7 +769,7 @@ Java_com_smhasnan_openvpn_nativevpn_OpenVpnNative_selfTest(JNIEnv *env, jobject)
     {
         openvpn::ClientAPI::OpenVPNClientHelper helper;
         const std::string result = helper.crypto_self_test();
-        bool ok = result.empty();
+        bool ok = true;
         bool found_status = false;
         std::size_t pos = 0;
         while ((pos = result.find("status=", pos)) != std::string::npos)

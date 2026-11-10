@@ -1,15 +1,28 @@
 # Testing and verification
 
-## Important limitation
+## Verification summary
 
-This repository was developed in a Linux container without a physical Android
-device or a controlled OpenVPN server. The app builds, unit tests pass, lint
-passes, and the instrumentation-test APK compiles. **A real tunnel was not
-exercised.** The checkboxes below distinguish verified build/test results from
-device tests that still must be performed before claiming production readiness.
+A real tunnel **was** exercised in an Android 11 (API 30, x86_64) emulator
+against a controlled OpenVPN 2.7 server on the host. The debug APK at the
+v1.0.2 code level:
 
-Never use a UI "Connected" state as proof that traffic is tunneled. Verify
-actual routing on a device with a controlled server.
+- launched the Compose UI;
+- imported a self-contained test profile through the production import pipeline;
+- loaded OpenVPN Core 3.9 and passed the native/Keystore instrumentation tests;
+- negotiated TLS 1.3 with `AES-256-GCM` data channel;
+- created an Android TUN with `10.8.0.2`, MTU 1500;
+- passed ICMP packets to `10.8.0.1` through the tunnel (`3/3` received);
+- displayed a real engine-derived CONNECTED state, timer, and traffic counters;
+- removed the TUN route and returned to DISCONNECTED on disconnect.
+
+Not yet tested: physical devices, IPv6 routing, DNS leak behavior, invalid
+certificate rejection, TCP profiles, Wi-Fi/cellular transitions, VPN permission
+revocation, process death, biometric lock on hardware, and notification action
+taps. Do not generalize the emulator result into a full leak-protection claim.
+
+> The published `v1.0.0` and `v1.0.1` artifacts are superseded: they contained
+> an Activity initialization crash and (for v1.0.1) the TUN delegation bug was
+> still being fixed. Use **v1.0.2 or newer**.
 
 ## Environment used
 
@@ -131,16 +144,16 @@ license texts and final verification docs.
 /opt/gradle/bin/gradle --no-daemon :app:assembleDebugAndroidTest
 ```
 
-Result: **pass** (compiles and links the test APK). The tests have **not been
-executed** because no device/emulator was attached.
-
-Tests included:
+Result: **pass**. Five tests were executed on an Android 11 (API 30) x86_64
+emulator with `am instrument`; all five passed:
 
 - native engine loads, core version is 3.9, crypto self-test passes (mbedTLS is
   built with `MBEDTLS_SELF_TEST`);
 - malformed profile is rejected by core;
 - native session can be created and destroyed;
-- Android Keystore AES-GCM encrypt/decrypt round trip.
+- Android Keystore AES-GCM encrypt/decrypt round trip;
+- self-contained profile import through `ConfigImporter`/Core merge+eval and
+  encrypted persistence.
 
 ## What is verified vs. not verified
 
@@ -150,21 +163,37 @@ Tests included:
 | Both ABI native libraries build | ✅ verified |
 | Unit tests (26) | ✅ verified |
 | Android lint | ✅ verified |
-| Signed, minified release APK | ✅ verified (local test key) |
+| Signed, minified release APK | ✅ verified |
 | R8 keeps JNI callbacks | ✅ verified by dexdump |
 | Instrumentation tests compile | ✅ verified |
-| Instrumentation tests execute on device | ❌ not run |
-| App launches on device | ❌ not run |
-| Real OpenVPN handshake | ❌ not run |
-| Valid/invalid credentials against server | ❌ not run |
-| Invalid server certificate rejection | ❌ not run |
-| Packets traverse tunnel | ❌ not run |
-| IPv4/IPv6/DNS leak behavior | ❌ not run |
+| Instrumentation tests execute (5) | ✅ verified on API 30 x86_64 emulator |
+| App launches on device | ✅ verified on API 30 x86_64 emulator |
+| Profile import pipeline | ✅ verified on emulator |
+| Real OpenVPN TLS handshake | ✅ verified against controlled OpenVPN 2.7 server |
+| TUN establishment (`10.8.0.2`, MTU 1500) | ✅ verified |
+| Packets traverse tunnel (ICMP to `10.8.0.1`) | ✅ verified (3/3) |
+| Disconnect cleanup (TUN route removed) | ✅ verified |
+| Invalid credentials | ❌ not run |
+| Invalid server certificate | ❌ not run |
+| Physical device (arm64-v8a) | ❌ not run |
+| IPv6 / DNS leak behavior | ❌ not run |
 | Wi-Fi ↔ mobile transition | ❌ not run |
 | VPN revocation / process death | ❌ not run |
-| Notification/QS controls on device | ❌ not run |
-| Fingerprint lock on device | ❌ not run |
+| Notification action tap / QS tile | ❌ not run (notification actions rendered) |
+| Fingerprint lock on real hardware | ❌ not run |
+| TCP profile | ❌ not run |
 
+## Emulator/server evidence
+
+- Emulator: Android 11 (API 30), x86_64, Google APIs image.
+- App: debug build, package `com.smhasnan.openvpn.debug`.
+- Server: OpenVPN 2.7.0, UDP 1194, TLS 1.3, `AES-256-GCM`, `topology subnet`,
+  server pushed `10.8.0.2`, MTU 1500.
+- Client Core: 3.9, platform log `android x86_64 64-bit`.
+- Server status showed `testclient` with virtual address `10.8.0.2` and byte
+  counters; emulator `ip route` showed `10.8.0.0/24 dev tun0 src 10.8.0.2`.
+- `adb shell ping -c 3 10.8.0.1` returned 3/3 replies.
+- After disconnect, the `tun0` route disappeared.
 ## Required device test plan
 
 Record for every run: device model, Android build, app version/ABI, core
