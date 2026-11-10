@@ -2,6 +2,69 @@
 
 All notable changes to this project are documented here.
 
+## [Unreleased]
+
+### Added
+
+- **Profile switching from Home.** The selected-profile row in the connection
+  hero opens a profile switcher with each profile's emoji, server and protocol,
+  the active profile marked, and a shortcut to profile management. Selection is
+  refused while the tunnel is active, with the reason shown in the sheet.
+- **Custom profile icons.** The icon picker accepts any emoji (one or two
+  grapheme clusters, including ZWJ sequences, flags and keycaps) in addition to
+  the built-in catalog. Input is validated with grapheme-aware rules, previewed
+  live, and persisted through the existing encrypted profile store; plain text
+  and oversized input are rejected.
+- `docs/performance.md` records the memory/battery audit, the implemented fixes,
+  the verification method, and the remaining structural hotspots.
+
+### Changed
+
+- Redesigned the Home "Network" section. The public-IP card now has explicit
+  empty, loading, failure and result states; the result names the egress path
+  (via tunnel or direct) and shows the time of the check. Loading uses a static
+  skeleton rather than a shimmer, because an animation would keep the frame
+  clock awake for the whole request.
+- The public-IP lookup uses a 6 s connect/read timeout and no HTTP cache, and
+  short-circuits with a clear message when the device has no usable network.
+
+### Fixed
+
+- A failed public-IP check could leave the previous address in state, so a
+  retry could surface a stale IP. The check state now holds exactly one outcome;
+  retries show the loading skeleton, results from a check started on a previous
+  egress path are discarded, and the address is cleared when the tunnel starts
+  or stops.
+- Duplicate profile refresh at cold start (`AppContainer` and `AppViewModel`
+  both decrypted every stored profile) removed.
+
+### Performance
+
+- Diagnostics are collected only by the Logs screen instead of the whole app,
+  so engine log lines no longer recompose every screen.
+- Diagnostics publication is coalesced (bounded 500-line buffer, one snapshot
+  per 250 ms) instead of rebuilding the full list for every native line; errors
+  are still published immediately.
+- Traffic-stat polling is state-driven and screen-aware: only while
+  `CONNECTED`/`RECONNECTING`, 1.5 s while interactive and 10 s while the screen
+  is off. Connection details are no longer re-read on every poll.
+- Foreground notification updates are deduplicated by rendered content and
+  coalesced to one pending main-thread post; PendingIntents are cached rather
+  than rebuilt per update.
+- Quick Settings tile updates are skipped when the rendered
+  `(state, label, subtitle)` did not change, so traffic statistics no longer
+  cross into SystemUI every 1.5 s.
+- Default-network callbacks are deduplicated by network identity, online state
+  and transport, so capability churn no longer triggers notification/tile
+  updates or underlying-network re-application.
+- The profile repository retains a summary index plus at most one decrypted
+  profile body instead of every profile's full config; bodies are decrypted on
+  demand (`ProfileStore.load(id)`).
+- The Home session chronometer runs only while the window is resumed; the
+  notification's system chronometer covers the background case.
+- Compose state models (`VpnSnapshot`, stats, details, profiles, settings, log
+  entries) are marked `@Immutable` so unchanged state can be skipped.
+
 ## [1.1.2] - 2026-11-10
 
 ### Fixed
