@@ -1,0 +1,26 @@
+# Android / Gradle
+*.iml
+.gradle/
+local.properties
+.idea/
+.DS_Store
+build/
+captures/
+.externalNativeBuild/
+.cxx/
+*.apk
+*.aab
+*.keystore
+*.jks
+keystore.properties
+
+# Native build outputs
+app/src/main/cpp/deps/
+app/src/main/cpp/build/
+third_party/build/
+
+# Generated
+*.hprof
+.kotlin/
+
+.native-deps/
