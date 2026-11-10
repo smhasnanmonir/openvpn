@@ -137,6 +137,11 @@ class MyVpnService : VpnService() {
                     beginConnect(profileId)
                 }
             }
+            // Android starts the VpnService with this action for Always-on VPN
+            // (including after boot and when lockdown restores the tunnel). The
+            // app must connect the persisted selected profile without waiting
+            // for the user to open the UI.
+            VpnService.SERVICE_INTERFACE -> startFromAlwaysOn()
             ACTION_DISCONNECT -> requestDisconnect(revoked = false)
             ACTION_RECONNECT -> {
                 val current = session
@@ -215,6 +220,29 @@ class MyVpnService : VpnService() {
         }
     }
 
+    /**
+     * Always-on VPN / lockdown starts the service with [VpnService.SERVICE_INTERFACE]
+     * instead of the app's own ACTION_CONNECT. Use the persisted profile
+     * selection and stored credentials so the tunnel comes back after boot or a
+     * process restart without requiring the UI.
+     */
+    private fun startFromAlwaysOn() {
+        if (synchronized(sessionLock) { session != null } || starting.get()) return
+        if (!showPreparingForeground("always-on")) return
+        serviceScope.launch {
+            // The process may have just started; make sure the summary index and
+            // reconciled selection are available before choosing the profile.
+            appContainer.profiles.refresh()
+            val profileId = appContainer.settings.selectedProfileIdNow()
+                ?: appContainer.profiles.selectedProfile()?.id
+            if (profileId.isNullOrBlank()) {
+                fail("Always-on VPN is enabled, but no VPN profile is selected. Open the app and choose a profile.")
+                return@launch
+            }
+            beginConnect(profileId)
+        }
+    }
+
     private fun beginConnect(profileId: String) {
         if (!starting.compareAndSet(false, true)) {
             VpnController.appendLog(LogLevel.WARN, "Ignoring duplicate connect request")
@@ -271,11 +299,20 @@ class MyVpnService : VpnService() {
                 // Profiles imported before the compatibility fix still carry a
                 // legacy-only tls-cipher pin; normalize at connect time as well
                 // so an app update fixes existing profiles without re-import.
-                val connectConfig = ProfileImportPolicy.withNegotiableTlsCiphers(stored.config)
-                if (connectConfig != stored.config) {
+                val negotiatedConfig = ProfileImportPolicy.withNegotiableTlsCiphers(stored.config)
+                if (negotiatedConfig != stored.config) {
                     VpnController.appendLog(
                         LogLevel.INFO,
                         "Removed a legacy-only tls-cipher pin for this connection (profile imported before 1.1.2).",
+                    )
+                }
+                // Existing profiles imported before server-certificate hardening
+                // also get remote-cert-tls server without a re-import.
+                val connectConfig = ProfileImportPolicy.withServerCertificateUsage(negotiatedConfig)
+                if (connectConfig != negotiatedConfig) {
+                    VpnController.appendLog(
+                        LogLevel.INFO,
+                        "Enforced remote-cert-tls server for this connection (profile imported before 1.3.0).",
                     )
                 }
 
@@ -528,6 +565,13 @@ class MyVpnService : VpnService() {
                 .setConfigureIntent(openAppIntent())
                 .setBlocking(false)
 
+            // Inherit the underlying network's meteredness where the platform
+            // supports it; otherwise the VPN would look unmetered and apps
+            // could ignore the user's data-saver settings.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                runCatching { builder.setMetered(networkMonitor.isMetered()) }
+            }
+
             val mtu = config.optInt("mtu", 0)
             if (mtu in 576..9000) builder.setMtu(mtu)
 
@@ -702,6 +746,13 @@ class MyVpnService : VpnService() {
 
         override fun onEngineLog(line: String) {
             VpnController.appendLog(LogLevel.INFO, line)
+            if (line.contains("Message too long", ignoreCase = true) ||
+                line.contains("EMSGSIZE", ignoreCase = true)) {
+                VpnController.appendLog(
+                    LogLevel.WARN,
+                    "A UDP packet exceeded the path MTU. If this repeats on this network, lower the profile's tun-mtu (for example 1400).",
+                )
+            }
         }
 
         override fun onTunEstablish(configJson: String): Int = establishTun(configJson)
