@@ -319,7 +319,7 @@ Verification performed on this branch:
   :app:assembleDebugAndroidTest
 ```
 
-Result: **pass**. 89 unit tests in 13 suites, 0 failures; lint 0 errors; debug
+Result: **pass**. 94 unit tests in 14 suites, 0 failures; lint 0 errors; debug
 APK and instrumentation-test APK built. The native target was also built
 explicitly with `:app:externalNativeBuildDebug` for `arm64-v8a` and `x86_64`,
 and the generated header was inspected to confirm the gated advertisement:
@@ -347,6 +347,61 @@ separate, non-fatal send failure; it is not the cause of the disconnect and was
 left as a diagnostic observation. A server that requires dynamic tls-crypt
 cannot complete a rekey with the pinned mbedTLS backend; the app now negotiates
 without advertising it instead of failing after the session is established.
+
+## Lock/unlock reconnect and traffic counters (2026-11-10)
+
+Two follow-up problems were reported on the same branch:
+
+1. After locking the phone and unlocking it, the app showed
+   `Connection timed out before the TLS handshake completed…`. The session had
+   already been connected; Core was retrying after the device slept/network
+   transitioned, and its `connTimeout` expired. The app returned `false` from
+   `pause_on_connection_timeout()` unconditionally, so Core emitted a fatal
+   `CONNECTION_TIMEOUT` instead of pausing. `OvpnClient` now returns `true` only
+   after the client has reached `CONNECTED`; `PAUSE`/`RESUME` map to
+   `RECONNECTING`, and the service retries with `OpenVPNClient::resume()` every
+   5 seconds while the network is online. An initial connection timeout still
+   produces the existing error. See ADR-007.
+2. Download and upload were swapped on Home. Core's TUN counters are named from
+   the tunnel device's perspective: `TUN_BYTES_OUT` is written to the TUN
+   (server → client, download) and `TUN_BYTES_IN` is read from it (client →
+   server, upload). The transport `BYTES_IN`/`BYTES_OUT` fallback uses the
+   socket's perspective and is already in the app's order. The mapping now
+   keeps `bytesIn` = download and `bytesOut` = upload and never mixes the two
+   directions when TUN counters are only partially populated.
+
+Verification performed on this branch:
+
+```bash
+./gradlew --no-daemon \
+  :app:testDebugUnitTest \
+  :app:lintDebug \
+  :app:assembleDebug \
+  :app:assembleDebugAndroidTest
+```
+
+Result: **pass**. 94 unit tests in 14 suites, 0 failures; lint 0 errors; debug
+APK and instrumentation-test APK built. `:app:externalNativeBuildDebug` built
+`arm64-v8a` and `x86_64`. New coverage: `NativeEngineStatsTest` pins the
+download/upload direction (including the transport fallback and partial TUN
+counters) and `EngineEventMapperTest` covers `PAUSE`/`RESUME`.
+
+Manual checks still required:
+
+- [ ] Connect, lock the phone, wait longer than `connTimeout` (60 s), then
+      unlock. Expect the state to move to Reconnecting and back to Connected
+      without a fatal timeout banner.
+- [ ] While reconnecting, tap Disconnect: the service stops and no retry loop
+      remains.
+- [ ] Download a known file and confirm the Home "Download" counter grows;
+      upload a file and confirm "Upload" grows.
+- [ ] Confirm a first connection to an unreachable server still ends with the
+      actionable connection-timeout error.
+
+Residual risk: a paused session tears down the old TUN before the resumed
+client establishes a new one. The app keeps `tunPersist = false` by design, so
+this is a short gap during reconnect rather than a persistent tunnel; see
+ADR-007.
 
 ## What is verified vs. not verified
 

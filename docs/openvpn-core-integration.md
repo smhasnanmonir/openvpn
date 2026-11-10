@@ -210,9 +210,16 @@ Compatibility settings keep older provider profiles connectable with the pinned
 
 The app maps actual core event names including `CONNECTING`, `CONNECTED`,
 `RECONNECTING`, `DISCONNECTED`, `AUTH_FAILED`, `DYNAMIC_CHALLENGE`,
-`TUN_SETUP_FAILED`, `TUN_ERROR`, `CONNECTION_TIMEOUT`, and logs. The native
-bridge also emits `PROFILE_REJECTED`, `CREDENTIALS_REJECTED`, and
-`SESSION_FINISHED` based on `OpenVPNClient` return statuses.
+`TUN_SETUP_FAILED`, `TUN_ERROR`, `CONNECTION_TIMEOUT`, `PAUSE`, `RESUME`, and
+logs. The native bridge also emits `PROFILE_REJECTED`, `CREDENTIALS_REJECTED`,
+and `SESSION_FINISHED` based on `OpenVPNClient` return statuses.
+
+`pause_on_connection_timeout()` returns `true` only after this client has
+reached `CONNECTED`. A post-connect timeout then becomes Core's `PAUSE` state
+instead of a fatal `CONNECTION_TIMEOUT`; the service maps `PAUSE`/`RESUME` to
+`RECONNECTING` and retries through `OpenVPNClient::resume()` every 5 seconds
+while the network is online. An initial connection timeout still returns
+`false` and is shown as an error. See ADR-007.
 
 ## Native dependency build
 
@@ -294,6 +301,10 @@ plus the submodule.
   the control-channel protection used for the initial handshake; a server that
   requires dynamic tls-crypt cannot complete a rekey with this build. See
   ADR-006.
+- **Paused reconnect gap:** a post-connect connection timeout enters Core's
+  `PAUSE` state, which tears down the old TUN. The service retries every 5
+  seconds and creates a fresh TUN on resume; `tunPersist` remains disabled by
+  design. See ADR-007.
 - **DCO** is not enabled for Android; packet processing uses the core's TUN
   path.
 - **`tunPersist`** is false; TUN is recreated per connection.

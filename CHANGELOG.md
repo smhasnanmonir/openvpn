@@ -15,6 +15,15 @@ All notable changes to this project are documented here.
   actionable error message instead of the raw
   `client_connect_unhandled_exception` text. The engine detail remains in
   Diagnostics.
+- A connection timeout during an automatic reconnect (for example after
+  locking/unlocking the phone or a transient network transition) no longer ends
+  an established session with a fatal error. Core pauses the session and the
+  service retries when the network is available; an initial connection timeout
+  still surfaces as an error (ADR-007).
+- The Home screen's Download and Upload counters were swapped because Core's
+  TUN counters use the tunnel device's direction. Download now maps to
+  `TUN_BYTES_OUT` and upload to `TUN_BYTES_IN`, with the transport counters kept
+  in the socket's direction for the fallback.
 
 ## [1.2.0] - 2026-11-10
 
