@@ -50,6 +50,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import com.smhasnan.openvpn.config.ProfileSummary
 import com.smhasnan.openvpn.ui.components.BrandMark
 import com.smhasnan.openvpn.ui.components.DividerLine
@@ -101,12 +104,18 @@ fun HomeScreen(
         mutableLongStateOf(0L)
     }
     var switcherOpen by remember { mutableStateOf(false) }
-    LaunchedEffect(snapshot.connectedAtMillis, snapshot.state) {
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(lifecycleOwner, snapshot.connectedAtMillis, snapshot.state) {
         val started = snapshot.connectedAtMillis
         if (snapshot.state == VpnState.CONNECTED && started != null) {
-            while (true) {
-                elapsedMillis = System.currentTimeMillis() - started
-                delay(1_000L)
+            // Tick only while the window is actually resumed. In the background
+            // the system notification chronometer already shows elapsed time, so
+            // a UI timer there would be pure wake-up cost.
+            lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+                while (true) {
+                    elapsedMillis = (System.currentTimeMillis() - started).coerceAtLeast(0L)
+                    delay(1_000L)
+                }
             }
         } else {
             elapsedMillis = 0L
