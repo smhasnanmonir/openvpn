@@ -19,7 +19,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -316,7 +316,7 @@ private fun ConnectionHero(
                     if (canSwitchProfile) {
                         Spacer(Modifier.width(4.dp))
                         Icon(
-                            imageVector = Icons.Filled.ExpandMore,
+                            imageVector = Icons.Filled.KeyboardArrowDown,
                             contentDescription = "Switch profile",
                             tint = HeroMuted,
                             modifier = Modifier.size(20.dp),
