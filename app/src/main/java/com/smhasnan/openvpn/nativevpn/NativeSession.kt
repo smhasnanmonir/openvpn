@@ -55,6 +55,11 @@ class NativeSession(private val callbacks: NativeCallbacks) : AutoCloseable {
         return current != 0L && OpenVpnNative.reconnect(current, seconds)
     }
 
+    fun resume(): Boolean {
+        val current = handle.get()
+        return current != 0L && OpenVpnNative.resume(current)
+    }
+
     fun disconnect() {
         val current = handle.get()
         if (current != 0L) OpenVpnNative.disconnect(current)

@@ -31,6 +31,7 @@ object OpenVpnNative {
     external fun disconnect(handle: Long)
     external fun respondToChallenge(handle: Long, response: String): Boolean
     external fun reconnect(handle: Long, seconds: Int): Boolean
+    external fun resume(handle: Long): Boolean
     external fun getStats(handle: Long): String
     external fun getConnectionInfo(handle: Long): String
     external fun isRunning(handle: Long): Boolean

@@ -392,6 +392,8 @@ bool OvpnClient::socket_protect(openvpn_io::detail::socket_type socket,
 
 void OvpnClient::event(const openvpn::ClientAPI::Event &ev)
 {
+    if (ev.name == "CONNECTED")
+        reached_connected_ = true;
     if (ev.name == "DYNAMIC_CHALLENGE")
     {
         dynamic_challenge_cookie_ = ev.info;
@@ -422,9 +424,13 @@ void OvpnClient::log(const openvpn::ClientAPI::LogInfo &log)
 
 bool OvpnClient::pause_on_connection_timeout()
 {
-    // Return false so a timeout becomes a visible error instead of a silently
-    // paused session with no working tunnel.
-    return false;
+    // A timeout before the first CONNECTED is a real failure: surface it so the
+    // user sees why the profile could not connect. After a successful
+    // connection, the same timeout is normally a reconnect attempt after a
+    // network transition or the device sleeping. Pause instead of stopping so
+    // the service can resume when the network is usable again; the app maps the
+    // PAUSE event to RECONNECTING and retries.
+    return reached_connected_;
 }
 
 void OvpnClient::external_pki_cert_request(openvpn::ClientAPI::ExternalPKICertRequest &req)
