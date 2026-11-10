@@ -27,7 +27,8 @@ changed the license to a dual MPL-2.0/AGPL-3.0 model; this project does not
 claim that later license for the pinned revision. If the core is upgraded, the
 license delta must be reviewed and the project license revisited.
 
-The complete AGPL-3.0 text is in `LICENSE`. The OpenVPN Core source is present
+The complete AGPL-3.0 text is in `LICENSE`. Full third-party license texts are
+in `licenses/`, with a file-to-component mapping in `licenses/README.md`. The OpenVPN Core source is present
 as a git submodule at `third_party/openvpn3` and is also available from
 <https://github.com/OpenVPN/openvpn3>. The application source is this
 repository, satisfying the AGPL corresponding-source requirement.
