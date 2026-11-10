@@ -147,8 +147,8 @@ emulator with `am instrument`; all five passed:
 - malformed profile is rejected by core;
 - native session can be created and destroyed;
 - Android Keystore AES-GCM encrypt/decrypt round trip;
-- self-contained profile import through `ConfigImporter`/Core merge+eval and
-  encrypted persistence.
+- self-contained profile import through `ConfigImporter`/Core merge+eval,
+  encrypted persistence, selection, rename, emoji update, and deletion.
 
 ## What is verified vs. not verified
 

@@ -6,6 +6,8 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.smhasnan.openvpn.config.ConfigImporter
 import com.smhasnan.openvpn.config.ImportOutcome
 import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -35,6 +37,17 @@ class ProfileImportInstrumentedTest {
             repository.refresh()
             assertTrue(repository.profiles.value.any { it.id == imported.profileId })
             repository.select(imported.profileId)
+
+            repository.rename(imported.profileId, "Renamed Lab").getOrThrow()
+            repository.setEmoji(imported.profileId, "🔒").getOrThrow()
+            repository.refresh()
+            val updated = repository.profiles.value.first { it.id == imported.profileId }
+            assertEquals("Renamed Lab", updated.name)
+            assertEquals("🔒", updated.emoji)
+
+            repository.delete(imported.profileId).getOrThrow()
+            repository.refresh()
+            assertFalse(repository.profiles.value.any { it.id == imported.profileId })
         } finally {
             file.delete()
         }
