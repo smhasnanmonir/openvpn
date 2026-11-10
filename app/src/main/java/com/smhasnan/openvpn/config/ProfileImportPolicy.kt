@@ -59,4 +59,38 @@ object ProfileImportPolicy {
         val body = config.trimEnd('\n', '\r')
         return "$body\n$CLIENT_CERT_DISABLED_DIRECTIVE\n"
     }
+
+    /**
+     * A real (not commented-out) `tls-cipher ...` directive line.
+     */
+    private val TLS_CIPHER_DIRECTIVE = Regex(
+        pattern = "^(?![ \\t]*[#;])[ \\t]*tls-cipher[ \\t]+([^\\r\\n]+)[ \\t\\r]*$",
+        options = setOf(RegexOption.IGNORE_CASE, RegexOption.MULTILINE),
+    )
+
+    /**
+     * Removes `tls-cipher` pins that list only legacy TLS 1.2 suites (RSA/DHE,
+     * without any ECDHE suite).
+     *
+     * Many provider exports pin e.g.
+     * `TLS-DHE-RSA-WITH-AES-256-CBC-SHA:TLS-DHE-DSS-...:TLS-RSA-...`, which
+     * excludes every ECDHE suite. When such a server now answers with TLS 1.3
+     * only, the pinned list makes the handshake stall until the connection
+     * timeout, with no authentication error. Dropping the pin lets the TLS
+     * library negotiate its own safe defaults (TLS 1.3 suites are not selected
+     * by `tls-cipher` anyway). Pins that still contain an ECDHE suite are kept
+     * untouched, and commented-out lines are never modified.
+     */
+    fun withNegotiableTlsCiphers(config: String): String {
+        if (!TLS_CIPHER_DIRECTIVE.containsMatchIn(config)) return config
+        val lines = config.split('\n')
+        val result = lines.filterNot { line ->
+            val match = TLS_CIPHER_DIRECTIVE.matchEntire(line) ?: return@filterNot false
+            val suites = match.groupValues[1]
+                .split(':', ' ', '\t')
+                .filter { it.isNotBlank() }
+            suites.isNotEmpty() && suites.none { it.contains("ECDHE", ignoreCase = true) }
+        }
+        return if (result.size == lines.size) config else result.joinToString("\n")
+    }
 }

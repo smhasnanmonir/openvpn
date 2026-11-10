@@ -5,6 +5,8 @@ import android.net.Uri
 import android.provider.OpenableColumns
 import com.smhasnan.openvpn.nativevpn.NativeEngine
 import com.smhasnan.openvpn.util.LogSanitizer
+import com.smhasnan.openvpn.vpn.LogLevel
+import com.smhasnan.openvpn.vpn.VpnController
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -123,6 +125,27 @@ class ConfigImporter(
                 }
                 content = adapted
                 metadata = reEval.metadata.copy(clientCertNotRequired = true)
+            }
+
+            // Provider exports often pin legacy TLS 1.2 cipher suites that no
+            // longer match providers serving TLS 1.3 only; the handshake then
+            // stalls until the connection timeout with no authentication error.
+            // Drop such a pin and re-validate the profile.
+            val negotiable = ProfileImportPolicy.withNegotiableTlsCiphers(content)
+            if (negotiable != content) {
+                val tlsEval = NativeEngine.evalConfig(negotiable)
+                if (tlsEval.error) {
+                    return ImportOutcome.Failure(
+                        document.name,
+                        "This profile could not be prepared for modern TLS negotiation. Import a profile that contains its certificate and key or a username/password sign-in.",
+                    )
+                }
+                VpnController.appendLog(
+                    LogLevel.INFO,
+                    "Profile import: removed a legacy-only tls-cipher pin so the server can negotiate TLS 1.3.",
+                )
+                content = negotiable
+                metadata = tlsEval.metadata.copy(clientCertNotRequired = metadata.clientCertNotRequired)
             }
 
             val hash = sha256(content)

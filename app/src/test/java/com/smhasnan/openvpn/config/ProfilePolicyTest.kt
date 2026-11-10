@@ -178,3 +178,62 @@ class ProfileImportPolicyTest {
         """.trimIndent()
     }
 }
+
+class ProfileTlsCipherPolicyTest {
+    @Test
+    fun removesLegacyOnlyTlsCipherPin() {
+        val config = """
+            client
+            remote sin-c07.vpn.wlvpn.com 1194
+            tls-cipher TLS-DHE-RSA-WITH-AES-256-CBC-SHA:TLS-DHE-DSS-WITH-AES-256-CBC-SHA:TLS-RSA-WITH-AES-256-CBC-SHA
+            auth-user-pass
+        """.trimIndent()
+
+        val result = ProfileImportPolicy.withNegotiableTlsCiphers(config)
+
+        assertFalse(result.contains("tls-cipher"))
+        assertTrue(result.contains("remote sin-c07.vpn.wlvpn.com 1194"))
+        assertTrue(result.contains("auth-user-pass"))
+    }
+
+    @Test
+    fun keepsAPinThatStillOffersAnEcdheSuite() {
+        val config = "client\ntls-cipher TLS-DHE-RSA-WITH-AES-256-CBC-SHA:TLS-ECDHE-RSA-WITH-AES-256-GCM-SHA384\n"
+        assertEquals(config, ProfileImportPolicy.withNegotiableTlsCiphers(config))
+    }
+
+    @Test
+    fun ignoresCommentedTlsCipherLines() {
+        val config = "client\n# tls-cipher TLS-DHE-RSA-WITH-AES-256-CBC-SHA\n"
+        assertEquals(config, ProfileImportPolicy.withNegotiableTlsCiphers(config))
+    }
+
+    @Test
+    fun leavesProfilesWithoutATlsCipherPinUntouched() {
+        val config = "client\nremote example.com 1194\nauth-user-pass\n"
+        assertEquals(config, ProfileImportPolicy.withNegotiableTlsCiphers(config))
+    }
+
+    @Test
+    fun removingThePinIsIdempotent() {
+        val config = "client\ntls-cipher TLS-RSA-WITH-AES-256-CBC-SHA\nremote example.com 1194\n"
+        val once = ProfileImportPolicy.withNegotiableTlsCiphers(config)
+        assertEquals(once, ProfileImportPolicy.withNegotiableTlsCiphers(once))
+    }
+
+    @Test
+    fun removesOnlyLegacyPinsAndKeepsModernDirectives() {
+        val config = """
+            client
+            tls-cipher TLS-RSA-WITH-AES-256-CBC-SHA
+            tls-cipher TLS-ECDHE-RSA-WITH-AES-256-GCM-SHA384
+            tls-ciphersuites TLS_AES_256_GCM_SHA384
+        """.trimIndent()
+
+        val result = ProfileImportPolicy.withNegotiableTlsCiphers(config)
+
+        assertTrue(result.contains("TLS-ECDHE-RSA-WITH-AES-256-GCM-SHA384"))
+        assertTrue(result.contains("tls-ciphersuites"))
+        assertEquals(1, result.lines().count { it.trim().startsWith("tls-cipher ") })
+    }
+}

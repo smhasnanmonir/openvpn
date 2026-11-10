@@ -20,7 +20,10 @@
 8. If Core reports `externalPki` for a certificate-less username/password
    profile, the importer adapts it (see below), validates the adapted profile
    again, and stores the adapted content.
-9. The result is encrypted and saved. The temp directory is recursively deleted.
+9. If the profile pins only legacy TLS 1.2 cipher suites in a `tls-cipher`
+   directive, that pin is dropped so the TLS library can negotiate modern
+   defaults (see below), and the profile is validated again.
+10. The result is encrypted and saved. The temp directory is recursively deleted.
 
 Nothing is copied into shared storage and the raw profile is never logged.
 
@@ -80,6 +83,24 @@ Genuinely external-PKI profiles (an explicit `EXTERNAL_PKI` marker, as used by
 profiles whose certificate and key are supplied at runtime by another app or a
 hardware token) remain rejected, as do profiles with neither a client
 certificate/key nor username/password sign-in material.
+
+## Legacy TLS cipher pins
+
+Some provider exports pin a TLS 1.2 cipher list, for example:
+
+```
+tls-cipher TLS-DHE-RSA-WITH-AES-256-CBC-SHA:TLS-DHE-DSS-WITH-AES-256-CBC-SHA:TLS-RSA-WITH-AES-256-CBC-SHA
+```
+
+None of those suites is an ECDHE suite. When a provider now serves TLS 1.3 only,
+such a pin prevents the handshake from completing, so the connection stalls
+until the timeout without any authentication error. When every suite in a real
+(not commented-out) `tls-cipher` directive is a legacy non-ECDHE suite, the
+importer removes that directive, validates the profile again, and logs
+"removed a legacy-only tls-cipher pin …" to diagnostics. Pins that still contain
+an ECDHE suite are left untouched. This only drops an obsolete TLS 1.2 cipher
+selection; TLS 1.3 cipher suites are negotiated by the TLS library regardless,
+and certificate verification is never weakened.
 
 ## Validation and rejection
 
