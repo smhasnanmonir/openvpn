@@ -2,6 +2,7 @@ package com.smhasnan.openvpn.ui
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,6 +19,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -32,6 +34,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -51,6 +54,7 @@ import com.smhasnan.openvpn.ui.components.DividerLine
 import com.smhasnan.openvpn.ui.components.EmptyState
 import com.smhasnan.openvpn.ui.components.KeyValueRow
 import com.smhasnan.openvpn.ui.components.MessageBanner
+import com.smhasnan.openvpn.ui.components.ProfileSwitcherSheet
 import com.smhasnan.openvpn.ui.components.ScreenHeader
 import com.smhasnan.openvpn.ui.components.SectionCard
 import com.smhasnan.openvpn.ui.components.SectionLabel
@@ -75,12 +79,14 @@ import kotlinx.coroutines.delay
 fun HomeScreen(
     snapshot: VpnSnapshot,
     profile: ProfileSummary?,
+    profiles: List<ProfileSummary>,
     ipState: PublicIpState,
     importing: Boolean,
     onConnect: () -> Unit,
     onDisconnect: () -> Unit,
     onReconnect: () -> Unit,
     onRefreshIp: () -> Unit,
+    onSelectProfile: (String) -> Unit,
     onImport: () -> Unit,
     onOpenProfiles: () -> Unit,
     onOpenLogs: () -> Unit,
@@ -90,6 +96,7 @@ fun HomeScreen(
     var elapsedMillis by remember(snapshot.connectedAtMillis, snapshot.state) {
         mutableLongStateOf(0L)
     }
+    var switcherOpen by remember { mutableStateOf(false) }
     LaunchedEffect(snapshot.connectedAtMillis, snapshot.state) {
         val started = snapshot.connectedAtMillis
         if (snapshot.state == VpnState.CONNECTED && started != null) {
@@ -142,6 +149,8 @@ fun HomeScreen(
                     snapshot = snapshot,
                     profile = profile,
                     elapsedMillis = elapsedMillis,
+                    canSwitchProfile = profiles.size > 1,
+                    onOpenProfileSwitcher = { switcherOpen = true },
                     onConnect = onConnect,
                     onDisconnect = onDisconnect,
                     onRespondChallenge = onRespondChallenge,
@@ -204,6 +213,23 @@ fun HomeScreen(
             }
         }
     }
+
+    if (switcherOpen && profile != null) {
+        ProfileSwitcherSheet(
+            profiles = profiles,
+            selectedId = profile.id,
+            locked = snapshot.state.isActive,
+            onSelect = {
+                switcherOpen = false
+                onSelectProfile(it)
+            },
+            onManageProfiles = {
+                switcherOpen = false
+                onOpenProfiles()
+            },
+            onDismiss = { switcherOpen = false },
+        )
+    }
 }
 
 @Composable
@@ -211,6 +237,8 @@ private fun ConnectionHero(
     snapshot: VpnSnapshot,
     profile: ProfileSummary,
     elapsedMillis: Long,
+    canSwitchProfile: Boolean,
+    onOpenProfileSwitcher: () -> Unit,
     onConnect: () -> Unit,
     onDisconnect: () -> Unit,
     onRespondChallenge: () -> Unit,
@@ -235,38 +263,65 @@ private fun ConnectionHero(
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
+                Row(
                     modifier = Modifier
-                        .size(42.dp)
-                        .background(HeroAccent.copy(alpha = 0.14f), CircleShape),
-                    contentAlignment = Alignment.Center,
+                        .weight(1f)
+                        .clip(RoundedCornerShape(14.dp))
+                        .then(
+                            if (canSwitchProfile) {
+                                Modifier.clickable(
+                                    onClickLabel = "Switch profile",
+                                    onClick = onOpenProfileSwitcher,
+                                )
+                            } else {
+                                Modifier
+                            },
+                        )
+                        .padding(vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(
-                        text = profile.emoji,
-                        fontSize = 20.sp,
-                        lineHeight = 22.sp,
-                    )
-                }
-                Spacer(Modifier.width(12.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = profile.name,
-                        style = MaterialTheme.typography.titleMedium,
-                        color = HeroText,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Spacer(Modifier.height(2.dp))
-                    Text(
-                        text = listOfNotNull(
-                            profile.metadata.displayServer,
-                            profile.metadata.protocolLabel,
-                        ).joinToString(" · ").ifBlank { "OpenVPN profile" },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = HeroMuted,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                    Box(
+                        modifier = Modifier
+                            .size(42.dp)
+                            .background(HeroAccent.copy(alpha = 0.14f), CircleShape),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = profile.emoji,
+                            fontSize = 20.sp,
+                            lineHeight = 22.sp,
+                        )
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = profile.name,
+                            style = MaterialTheme.typography.titleMedium,
+                            color = HeroText,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            text = listOfNotNull(
+                                profile.metadata.displayServer,
+                                profile.metadata.protocolLabel,
+                            ).joinToString(" · ").ifBlank { "OpenVPN profile" },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = HeroMuted,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    if (canSwitchProfile) {
+                        Spacer(Modifier.width(4.dp))
+                        Icon(
+                            imageVector = Icons.Filled.ExpandMore,
+                            contentDescription = "Switch profile",
+                            tint = HeroMuted,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
                 }
                 Spacer(Modifier.width(8.dp))
                 HeroStatusPill(state = snapshot.state)
