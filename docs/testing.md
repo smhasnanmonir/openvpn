@@ -25,7 +25,7 @@ actual routing on a device with a controlled server.
 | OpenVPN Core | release/3.9 `10c6a56` |
 | ABIs built | arm64-v8a, x86_64 |
 | Signing | RSA-4096 release key (not committed) |
-| CI | GitHub Actions run `42736092481`, commit `96cf898`, **success** |
+| CI | main run `42736092481` (commit `96cf898`) and tag run `42736907921` (`v1.0.0`), **success** |
 
 ## Commands run and results
 
@@ -109,6 +109,18 @@ sha256:  ef6c62b0fa9f35c27ff9d844e3dde5f7a6218ed3b1de3c1fb33896a694a4c5e0
 A CI-built APK for a tag is rebuilt with the tag's `APP_VERSION_CODE` and a new
 signing timestamp, so its byte hash can differ. Compare the signing certificate
 digest and build metadata instead of expecting the same bytes.
+
+Published `v1.0.0` GitHub Release asset (built by GitHub Actions, verified with
+`apksigner` and `aapt2`):
+
+```
+name:         app-release.apk
+versionName:  1.0.0
+versionCode:  7
+size:         6,869,197 bytes
+sha256:       9fcf60d1cb599e606f6e8ee1f9d7dbb7492b080055b99aa3ac6eab392e650df1
+cert sha256:  834d2a58261a6c4113a3170953c1eea4a30d65ebc5ba4386408f09039dd00c9c
+```
 
 ### Instrumentation test APK
 

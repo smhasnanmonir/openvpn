@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here.
 
+## [1.0.1] - 2026-11-10
+
+### Changed
+
+- Added full third-party license texts under `licenses/`.
+- Recorded published artifact verification and CI results.
+
 ## [1.0.0] - 2026-11-10
 
 ### Added
