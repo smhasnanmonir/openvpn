@@ -105,6 +105,7 @@ class ProfileStore(
         .put("privateKeyPasswordRequired", metadata.privateKeyPasswordRequired)
         .put("allowPasswordSave", metadata.allowPasswordSave)
         .put("externalPki", metadata.externalPki)
+        .put("clientCertNotRequired", metadata.clientCertNotRequired)
         .put("profileName", metadata.profileName ?: JSONObject.NULL)
         .put("friendlyName", metadata.friendlyName ?: JSONObject.NULL)
 
@@ -122,6 +123,7 @@ class ProfileStore(
             privateKeyPasswordRequired = json.optBoolean("privateKeyPasswordRequired"),
             allowPasswordSave = json.optBoolean("allowPasswordSave", true),
             externalPki = json.optBoolean("externalPki"),
+            clientCertNotRequired = json.optBoolean("clientCertNotRequired", false),
             profileName = json.nullableString("profileName"),
             friendlyName = json.nullableString("friendlyName"),
         )

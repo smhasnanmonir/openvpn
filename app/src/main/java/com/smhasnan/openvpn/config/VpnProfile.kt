@@ -13,6 +13,12 @@ data class ProfileMetadata(
     val privateKeyPasswordRequired: Boolean = false,
     val allowPasswordSave: Boolean = false,
     val externalPki: Boolean = false,
+    /**
+     * True when the importer added Core's `setenv CLIENT_CERT 0` directive to
+     * the stored profile because the profile signs in with a username/password
+     * and has no client certificate.
+     */
+    val clientCertNotRequired: Boolean = false,
     val profileName: String? = null,
     val friendlyName: String? = null,
 ) {

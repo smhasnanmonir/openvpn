@@ -53,6 +53,56 @@ license delta.
 - `parse_dynamic_challenge(info, DynamicChallenge&)`
 - `platform()`, `copyright()`, `crypto_self_test()`
 
+#### Certificate-less username/password profiles
+
+Core 3.9 reports `EvalConfig.externalPki = true` whenever the parsed profile has
+no client `cert` or no client `key` option, even for a legitimate
+username/password-only profile:
+
+```cpp
+// openvpn/client/cliopthelper.hpp at 10c6a56
+externalPki_ = (clientCertEnabled_ && is_external_pki(options));
+...
+static bool is_external_pki(const OptionList &options)
+{
+    const Option *epki = options.get_ptr("EXTERNAL_PKI");
+    if (epki)
+        return string::is_true(epki->get_optional(1, 16));
+    else
+    {
+        const Option *cert = options.get_ptr("cert");
+        const Option *key = options.get_ptr("key");
+        return !cert || !key;
+    }
+}
+```
+
+The same header parses the OpenVPN 2 `setenv CLIENT_CERT 0` setting into
+`clientCertEnabled_ = false`, which makes `externalPki_` false as well; at connect
+time `ClientOptions` calls
+`cc->set_local_cert_enabled(pcc.clientCertEnabled() && !config.clientconf.disableClientCert)`,
+so the SSL layer loads without a client certificate and no external-PKI callback
+is requested (`openvpn/client/cliopt.hpp`). That is the supported Core path for
+username/password-only profiles.
+
+Because `EvalConfig` exposes only the combined boolean, the app inspects the
+merged profile text in `ProfileImportPolicy`:
+
+- an explicit `EXTERNAL_PKI` (or `setenv opt EXTERNAL_PKI`) marker means the
+  profile really needs a certificate/key provider → rejected;
+- a certificate-less profile that declares username/password authentication
+  (`auth-user-pass`, `<auth-user-pass>`, `setenv opt auth-user-pass`) gets Core's
+  own `setenv CLIENT_CERT 0` directive appended to the stored merged profile, is
+  re-validated with `eval_config`, and is only stored if Core then reports
+  `externalPki == false`;
+- a certificate-less profile with no sign-in material is rejected (fail closed).
+  See `docs/profile-import.md` and ADR-004.
+
+The directive is parsed by Core from the stored profile when the service
+connects, so no JNI, C++ adapter, or `ClientAPI::Config` change is required. The
+app never disables server certificate verification: `remote-cert-tls server`,
+`verify-x509-name`, and the CA stay in force.
+
 `OpenVPNClient` (session):
 
 - `eval_config(Config)`
@@ -187,8 +237,12 @@ plus the submodule.
 
 ## Known limitations and unsupported features
 
-- **External PKI** profiles are rejected; the callbacks return an error rather
-  than pretending to support an alias/key provider.
+- **External PKI provider** profiles (an explicit `EXTERNAL_PKI` marker, where
+  the certificate and key come from an alias/provider at runtime) are rejected;
+  the callbacks return an error rather than pretending to support an alias/key
+  provider. Profiles that merely have no client certificate (username/password
+  only) are supported through Core's `setenv CLIENT_CERT 0` directive, see
+  "Certificate-less username/password profiles" above.
 - **TAP / layer 2** is not supported by Android `VpnService`; the builder only
   accepts layer 3.
 - **HTTPS proxy and PAC** are unsupported. HTTP proxy is applied only on Android
@@ -244,3 +298,11 @@ plus the submodule.
   TLS 1.3 / AES-256-GCM, TUN `10.8.0.2`, MTU 1500, ICMP to `10.8.0.1` through
   the tunnel, and clean disconnect removing the TUN route. See
   `docs/testing.md`. Physical-device and leak tests remain pending.
+- Certificate-less username/password import (ADR-004): 36 JVM unit tests pass;
+  the full instrumentation suite (9 tests) passes on an Android 16 (API 36)
+  x86_64 emulator, including `UserPasswordProfileInstrumentedTest`, which proves
+  with the pinned native Core that a real provider profile evaluates with
+  `externalPki=true` before adaptation and `externalPki=false` after
+  `setenv CLIENT_CERT 0`, and that the production importer stores the adapted
+  profile and dedupes re-imports. A live handshake against the provider was not
+  run (no credentials available).

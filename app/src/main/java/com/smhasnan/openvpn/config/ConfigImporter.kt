@@ -95,21 +95,44 @@ class ConfigImporter(
                     LogSanitizer.sanitize(eval.message).ifBlank { "OpenVPN Core rejected this profile." },
                 )
             }
+            var content = merged.content
+            var metadata = eval.metadata
             if (eval.metadata.externalPki) {
-                return ImportOutcome.Failure(
-                    document.name,
-                    "External PKI profiles are not supported. Import a profile that contains its certificate and key.",
-                )
+                if (ProfileImportPolicy.declaresExternalPki(content)) {
+                    return ImportOutcome.Failure(
+                        document.name,
+                        "This profile requires an external PKI certificate and key provider, which this app does not have. Import a profile that contains its certificate and key.",
+                    )
+                }
+                if (!ProfileImportPolicy.declaresUserPasswordAuth(content)) {
+                    return ImportOutcome.Failure(
+                        document.name,
+                        "This profile has no client certificate or key and no sign-in credentials. Import a profile that contains its certificate and key or a username/password sign-in.",
+                    )
+                }
+                // Core treats a profile without a client cert/key as external PKI,
+                // but username/password-only profiles are fully supported once Core
+                // is told that no client certificate is required.
+                val adapted = ProfileImportPolicy.withoutClientCertificate(content)
+                val reEval = NativeEngine.evalConfig(adapted)
+                if (reEval.error || reEval.metadata.externalPki) {
+                    return ImportOutcome.Failure(
+                        document.name,
+                        "This profile could not be adapted for sign-in without a client certificate. Import a profile that contains its certificate and key.",
+                    )
+                }
+                content = adapted
+                metadata = reEval.metadata.copy(clientCertNotRequired = true)
             }
 
-            val hash = sha256(merged.content)
+            val hash = sha256(content)
             repository.findByHash(hash)?.let { existing ->
                 repository.select(existing.id)
                 return ImportOutcome.Success(document.name, existing.id, alreadyImported = true)
             }
 
             val suggested = ImportFilePolicy.suggestedDisplayName(document.name).ifBlank {
-                eval.metadata.friendlyName ?: eval.metadata.profileName ?: "Imported profile"
+                metadata.friendlyName ?: metadata.profileName ?: "Imported profile"
             }.take(ProfileNameValidator.MAX_LENGTH)
             val name = ProfileNameValidator.validate(suggested).getOrElse { "Imported profile" }
             val now = System.currentTimeMillis()
@@ -117,12 +140,12 @@ class ConfigImporter(
                 id = UUID.randomUUID().toString(),
                 name = name,
                 emoji = EmojiCatalog.defaultFor(repository.profiles.value.size),
-                metadata = eval.metadata,
+                metadata = metadata,
                 createdAt = now,
                 updatedAt = now,
                 contentHash = hash,
             )
-            val stored = StoredProfile(summary = summary, config = merged.content)
+            val stored = StoredProfile(summary = summary, config = content)
             repository.add(stored).getOrElse {
                 return ImportOutcome.Failure(document.name, "Could not save the profile securely.")
             }

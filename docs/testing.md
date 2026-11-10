@@ -72,7 +72,8 @@ debug APK is not minified).
 /opt/gradle/bin/gradle --no-daemon -Pabis=arm64-v8a :app:testDebugUnitTest
 ```
 
-Result: **pass** — 26 tests, 0 failures, 0 errors.
+Result: **pass** — 26 tests at v1.0.2 (36 after the ADR-004 import fix), 0
+failures, 0 errors.
 
 Coverage includes:
 
@@ -139,8 +140,9 @@ Activity initialization crash; v1.0.1 also lacked the final TUN delegation fix.
 /opt/gradle/bin/gradle --no-daemon :app:assembleDebugAndroidTest
 ```
 
-Result: **pass**. Five tests were executed on an Android 11 (API 30) x86_64
-emulator with `am instrument`; all five passed:
+Result: **pass**. Five tests were executed at v1.0.2 (nine after the ADR-004
+import fix) on an Android 11 (API 30) x86_64 emulator with `am instrument`; all
+five passed:
 
 - native engine loads, core version is 3.9, crypto self-test passes (mbedTLS is
   built with `MBEDTLS_SELF_TEST`);
@@ -150,18 +152,62 @@ emulator with `am instrument`; all five passed:
 - self-contained profile import through `ConfigImporter`/Core merge+eval,
   encrypted persistence, selection, rename, emoji update, and deletion.
 
+## Username/password-only profile import fix (2026-11-10)
+
+Context: importing provider profiles that sign in with a username/password and
+have no client certificate/key failed with "External PKI profiles are not
+supported" because OpenVPN Core 3.9 reports such profiles as `externalPki`. The
+fix and its rationale are in ADR-004 and `docs/profile-import.md`.
+
+Environment: Windows host, JDK 17.0.20, Gradle 8.11.1, NDK 27.2.12479018
+(official r27c archive), CMake 3.22.1, ABI `x86_64`, Android 16 (API 36) x86_64
+emulator. The pinned Core submodule was checked out at `10c6a56` and the native
+dependencies were rebuilt for `x86_64`.
+
+Commands and results:
+
+- `.\gradlew.bat :app:testDebugUnitTest` → **pass**, 36 tests, 0 failures, 0
+  errors (10 new `ProfileImportPolicyTest` tests).
+- `.\gradlew.bat :app:compileDebugKotlin` → **pass**.
+- `.\gradlew.bat :app:lintDebug` → **pass** (0 errors; pre-existing warnings
+  only).
+- `.\gradlew.bat :app:assembleDebug :app:assembleDebugAndroidTest -Pabis=x86_64`
+  → **pass** (`libnativevpn.so` for `x86_64`).
+- `adb shell am instrument -w …AndroidJUnitRunner` → **OK (9 tests)**, including
+  the new `UserPasswordProfileInstrumentedTest` (4 tests):
+  - the real `NCVPN-SG-Singapore-UDP.ovpn` is evaluated by Core 3.9 with
+    `error=false`, `externalPki=true`, `autologin=false`;
+  - after `ProfileImportPolicy.withoutClientCertificate` the same profile
+    evaluates with `error=false` and `externalPki=false`;
+  - the production `ConfigImporter` pipeline (merge → eval → adapt → store)
+    accepts the profile, stores exactly one `setenv CLIENT_CERT 0` directive and
+    `clientCertNotRequired=true` metadata, and a re-import dedupes to the same
+    profile id;
+  - all 151 provider profiles in the reported set classify as certificate-less
+    sign-in profiles (`auth-user-pass`, no `EXTERNAL_PKI` marker).
+- Negative control: restoring the old unconditional `externalPki` rejection
+  makes the on-device importer test fail; the JVM unit tests still pass, so that
+  branch is guarded only by the instrumentation test.
+
+Not verified: a live TLS/auth handshake against the provider (no credentials are
+available in this environment). The certificate-less connect path is verified by
+reading pinned Core 3.9 source
+(`externalPki_ = clientCertEnabled_ && is_external_pki(options)` and
+`set_local_cert_enabled(pcc.clientCertEnabled() && !disable_client_cert)`), not by
+a live session.
+
 ## What is verified vs. not verified
 
 | Check | Status |
 |---|---|
 | Debug APK builds | ✅ verified |
 | Both ABI native libraries build | ✅ verified |
-| Unit tests (26) | ✅ verified |
+| Unit tests (36) | ✅ verified |
 | Android lint | ✅ verified |
 | Signed, minified release APK | ✅ verified |
 | R8 keeps JNI callbacks | ✅ verified by dexdump |
 | Instrumentation tests compile | ✅ verified |
-| Instrumentation tests execute (5) | ✅ verified on API 30 x86_64 emulator |
+| Instrumentation tests execute (9) | ✅ verified on API 30 and API 36 x86_64 emulators |
 | App launches on device | ✅ verified on API 30 x86_64 emulator |
 | Profile import pipeline | ✅ verified on emulator |
 | Real OpenVPN TLS handshake | ✅ verified against controlled OpenVPN 2.7 server |

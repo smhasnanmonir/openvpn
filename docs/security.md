@@ -52,7 +52,12 @@ The app:
 - never sets `enableLegacyAlgorithms` unless the profile itself demands it
   (currently the app does not expose that override);
 - does not copy the CA out of the profile into logs or UI state;
-- rejects external PKI profiles instead of silently bypassing them;
+- rejects profiles that explicitly request an external PKI certificate/key
+  provider instead of silently bypassing them;
+- for certificate-less username/password profiles only, adds Core's
+  `setenv CLIENT_CERT 0` directive (no client certificate is sent); the server
+  certificate, CA, `remote-cert-tls server`, and `verify-x509-name` checks are
+  unaffected (ADR-004);
 - lets core reject invalid server certificates and reports the engine error.
 
 The app supports profiles that use standard CA/`peer-fingerprint` validation

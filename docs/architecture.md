@@ -143,12 +143,15 @@ all domains from cloud backup and device transfer.
   callbacks).
 - Shared UI primitives in `ui/components` rather than duplicating cards,
   banners, validation, and empty states.
-- Pure policies (`ImportFilePolicy`, `ProfileNameValidator`, `LogSanitizer`,
-  `EngineEventMapper`) are unit-tested without Android.
+- Pure policies (`ImportFilePolicy`, `ProfileImportPolicy`,
+  `ProfileNameValidator`, `LogSanitizer`, `EngineEventMapper`) are unit-tested
+  without Android.
 
 ## Deliberate non-goals
 
 - No custom VPN protocol, TLS, certificate validation, or cryptography.
 - No app-controlled guaranteed kill switch.
-- No per-app split tunneling UI, WINS, TAP mode, or external PKI.
+- No per-app split tunneling UI, WINS, TAP mode, or external PKI provider
+  support. Certificate-less username/password profiles are supported by adding
+  Core's `setenv CLIENT_CERT 0`; see `docs/profile-import.md` and ADR-004.
 - No analytics/backend/DI framework/Room/Retrofit.
