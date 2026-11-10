@@ -17,6 +17,8 @@ object EmojiCatalog {
     private const val MAX_GRAPHEME_CLUSTERS = 2
 
     private const val ZERO_WIDTH_JOINER = 0x200D
+    private const val VARIATION_SELECTOR_16 = '\uFE0F'
+    private const val KEYCAP_MARK = '\u20E3'
     private const val REGIONAL_INDICATOR_FIRST = 0x1F1E6
     private const val REGIONAL_INDICATOR_LAST = 0x1F1FF
     private const val EMOJI_MODIFIER_FIRST = 0x1F3FB
@@ -40,21 +42,22 @@ object EmojiCatalog {
         val value = candidate?.trim() ?: return false
         if (value.isEmpty() || value.length > MAX_UTF16_LENGTH) return false
         if (value.any { it.isISOControl() }) return false
-        return clusterCount(value) in 1..MAX_GRAPHEME_CLUSTERS
+        val clusters = clusterRanges(value)
+        return clusters.size in 1..MAX_GRAPHEME_CLUSTERS && clusters.all { isEmojiCluster(value, it) }
     }
 
     /**
-     * Counts extended grapheme clusters. The JVM [BreakIterator] uses legacy cluster rules that
-     * split ZWJ sequences, skin-tone modifiers, flags and tag sequences into several clusters, so
-     * those continuations are folded back into their base here. Android's ICU-backed
+     * Splits [value] into extended grapheme clusters. The JVM [BreakIterator] uses legacy cluster
+     * rules that split ZWJ sequences, skin-tone modifiers, flags and tag sequences into several
+     * clusters, so those continuations are folded back into their base here. Android's ICU-backed
      * implementation already keeps them together, which makes the folding a no-op there.
      */
-    private fun clusterCount(value: String): Int {
+    private fun clusterRanges(value: String): List<IntRange> {
         val iterator = BreakIterator.getCharacterInstance(Locale.ROOT)
         iterator.setText(value)
         iterator.first()
 
-        var clusters = 0
+        val starts = mutableListOf<Int>()
         var previousEnd = -1
         var regionalIndicators = 0
         var end = iterator.next()
@@ -63,17 +66,43 @@ object EmojiCatalog {
             val codePoint = Character.codePointAt(value, start)
             val joinsPrevious = previousEnd >= 0 &&
                 continuesCluster(Character.codePointBefore(value, previousEnd), codePoint, regionalIndicators)
-            if (joinsPrevious) {
-                if (isRegionalIndicator(codePoint)) regionalIndicators++
-            } else {
-                clusters++
+            if (previousEnd < 0 || !joinsPrevious) {
+                starts.add(start)
                 regionalIndicators = if (isRegionalIndicator(codePoint)) 1 else 0
+            } else if (isRegionalIndicator(codePoint)) {
+                regionalIndicators++
             }
             previousEnd = end
             end = iterator.next()
         }
-        return clusters
+        return starts.mapIndexed { index, start ->
+            start until (starts.getOrNull(index + 1) ?: value.length)
+        }
     }
+
+    /**
+     * Requires the cluster to start with an emoji code point or a keycap sequence; continuations
+     * such as ZWJ, variation selectors, skin tones and tag characters are allowed after that base.
+     */
+    private fun isEmojiCluster(value: String, cluster: IntRange): Boolean {
+        val base = Character.codePointAt(value, cluster.first)
+        if (isEmojiBase(base)) return true
+        if (!isKeycapBase(base)) return false
+        var index = cluster.first + 1
+        if (index <= cluster.last && value[index] == VARIATION_SELECTOR_16) index++
+        return index == cluster.last && value[index] == KEYCAP_MARK
+    }
+
+    /** Regional indicators (U+1F1E6–U+1F1FF) are already inside the main pictograph range. */
+    private fun isEmojiBase(codePoint: Int): Boolean =
+        codePoint in 0x1F000..0x1FAFF ||
+            codePoint in 0x2600..0x27BF ||
+            codePoint in 0x2B00..0x2BFF ||
+            codePoint in 0x2190..0x21FF ||
+            codePoint in 0x2300..0x23FF
+
+    private fun isKeycapBase(codePoint: Int): Boolean =
+        codePoint == '#'.code || codePoint == '*'.code || codePoint in '0'.code..'9'.code
 
     private fun continuesCluster(previous: Int, codePoint: Int, regionalIndicators: Int): Boolean =
         previous == ZERO_WIDTH_JOINER ||
