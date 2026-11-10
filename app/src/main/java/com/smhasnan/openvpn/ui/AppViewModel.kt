@@ -1,6 +1,9 @@
 package com.smhasnan.openvpn.ui
 
 import android.app.Application
+import android.content.Context
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -25,8 +28,12 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
 
 data class UiMessage(val text: String, val isError: Boolean = false)
 
@@ -73,18 +80,29 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     private var promptBase = ProfileCredentials()
     private var lastVpnState = VpnState.DISCONNECTED
+    private var ipCheckGeneration = 0L
+    private val connectivityManager =
+        application.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
 
     init {
-        viewModelScope.launch { container.profiles.refresh() }
+        // AppContainer already refreshes profiles once per process; refreshing
+        // again here re-read and re-decrypted every stored profile on each open.
         viewModelScope.launch {
-            vpn.collect { snapshot ->
-                if (snapshot.state == VpnState.CONNECTED &&
-                    lastVpnState != VpnState.CONNECTED &&
-                    container.settings.settingsNow().autoCheckIp
-                ) {
-                    checkIp()
+            vpn.map { it.state }.distinctUntilChanged().collect { state ->
+                val previous = lastVpnState
+                if (state == VpnState.CONNECTED && previous != VpnState.CONNECTED) {
+                    // The egress path just changed. Drop any in-flight direct
+                    // result and either re-check through the tunnel or clear the
+                    // address that no longer describes this device's egress.
+                    if (container.settings.settingsNow().autoCheckIp) {
+                        startIpCheck(force = true)
+                    } else {
+                        invalidateIpCheck()
+                    }
+                } else if (previous == VpnState.CONNECTED && state != VpnState.CONNECTED) {
+                    invalidateIpCheck()
                 }
-                lastVpnState = snapshot.state
+                lastVpnState = state
             }
         }
     }
@@ -203,26 +221,65 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun checkIp() {
-        if (_ipState.value.loading) return
-        _ipState.value = _ipState.value.copy(loading = true, error = null)
+        startIpCheck(force = false)
+    }
+
+    /**
+     * Runs one public-IP lookup. A completed result is applied only when it is
+     * still the newest request, so switching network paths while a request is in
+     * flight cannot publish the address of the previous path.
+     */
+    private fun startIpCheck(force: Boolean) {
+        if (_ipState.value.loading && !force) return
+        val generation = ++ipCheckGeneration
+        val throughTunnel = VpnController.snapshot.value.state == VpnState.CONNECTED
+        if (!hasInternetConnectivity()) {
+            _ipState.value = PublicIpState(
+                error = "No network connection. Connect this device to a network and try again.",
+                throughTunnel = throughTunnel,
+            )
+            return
+        }
+        _ipState.value = PublicIpState(loading = true, throughTunnel = throughTunnel)
         viewModelScope.launch {
             val result = container.publicIp.fetch()
+            if (generation != ipCheckGeneration) return@launch
             _ipState.value = result.fold(
-                onSuccess = {
+                onSuccess = { address ->
                     PublicIpState(
-                        loading = false,
-                        ip = it,
+                        ip = address,
                         checkedAtMillis = System.currentTimeMillis(),
+                        throughTunnel = throughTunnel,
                     )
                 },
-                onFailure = {
-                    _ipState.value.copy(
-                        loading = false,
-                        error = it.message ?: "Could not check the public IP.",
+                onFailure = { failure ->
+                    PublicIpState(
+                        error = publicIpFailureMessage(failure),
+                        throughTunnel = throughTunnel,
                     )
                 },
             )
         }
+    }
+
+    private fun invalidateIpCheck() {
+        ipCheckGeneration++
+        if (_ipState.value != PublicIpState()) _ipState.value = PublicIpState()
+    }
+
+    private fun hasInternetConnectivity(): Boolean {
+        val network = connectivityManager.activeNetwork ?: return false
+        val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return false
+        return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+    }
+
+    private fun publicIpFailureMessage(failure: Throwable): String = when (failure) {
+        is SocketTimeoutException -> "The IP service did not answer in time. Try again."
+        is UnknownHostException -> "The IP service could not be resolved. Check your connection."
+        else -> failure.message
+            ?.take(140)
+            ?.takeIf { it.isNotBlank() }
+            ?: "Could not check the public IP address."
     }
 
     fun importProfiles(uris: List<Uri>) {
