@@ -24,7 +24,8 @@ actual routing on a device with a controlled server.
 | CMake | 3.22.1 |
 | OpenVPN Core | release/3.9 `10c6a56` |
 | ABIs built | arm64-v8a, x86_64 |
-| Signing | RSA-4096 test release key (not committed) |
+| Signing | RSA-4096 release key (not committed) |
+| CI | GitHub Actions run `42736092481`, commit `96cf898`, **success** |
 
 ## Commands run and results
 
@@ -49,8 +50,8 @@ from the pinned archives.
 ```
 
 Result: **pass** for arm64-v8a and for both arm64-v8a + x86_64.
-Output: `app/build/outputs/apk/debug/app-debug.apk` (~13 MB debug with both
-ABIs; debug APK is not minified).
+Output: `app/build/outputs/apk/debug/app-debug.apk` (about 16 MB with both ABIs;
+debug APK is not minified).
 
 ### Unit tests
 
@@ -71,6 +72,13 @@ Coverage includes:
 - byte/duration formatting;
 - emoji normalization.
 
+### CI
+
+GitHub Actions run `42736092481` (commit `96cf898`) completed successfully:
+SDK/NDK provisioning, checksum-verified native dependency build, JVM tests,
+lint, debug APK, and instrumentation-test APK. The tag release path additionally
+builds and publishes the signed APK; see `docs/release.md`.
+
 ### Lint
 
 ```bash
@@ -87,9 +95,20 @@ Result: **pass** (0 errors; dependency-version and cosmetic warnings remain).
 ```
 
 Result: **pass**. `app/build/outputs/apk/release/app-release.apk` is minified,
-resource-shrunk, and signed with the local test key. APK signature verified with
-`apksigner` (v2 + v3). JNI callback method names were checked in the R8 output
-with `dexdump` and remain unobfuscated.
+resource-shrunk, and signed. APK signature verified with `apksigner` (v2 + v3).
+JNI callback method names were checked in the R8 output with `dexdump` and
+remain unobfuscated.
+
+Local final artifact (commit `96cf898`, both ABIs):
+
+```
+size:    6.6 MB
+sha256:  ef6c62b0fa9f35c27ff9d844e3dde5f7a6218ed3b1de3c1fb33896a694a4c5e0
+```
+
+A CI-built APK for a tag is rebuilt with the tag's `APP_VERSION_CODE` and a new
+signing timestamp, so its byte hash can differ. Compare the signing certificate
+digest and build metadata instead of expecting the same bytes.
 
 ### Instrumentation test APK
 
@@ -102,7 +121,8 @@ executed** because no device/emulator was attached.
 
 Tests included:
 
-- native engine loads, core version is 3.9, crypto self-test passes;
+- native engine loads, core version is 3.9, crypto self-test passes (mbedTLS is
+  built with `MBEDTLS_SELF_TEST`);
 - malformed profile is rejected by core;
 - native session can be created and destroyed;
 - Android Keystore AES-GCM encrypt/decrypt round trip.

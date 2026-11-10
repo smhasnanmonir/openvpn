@@ -9,8 +9,9 @@ transport sockets with `VpnService.protect()`, and reports only engine-derived
 connection state. It is not a mock UI and does not implement its own VPN
 protocol or cryptography.
 
-> **Verification status:** debug and signed release APKs build successfully;
-> JVM tests, Android lint, R8, and the instrumentation-test APK build pass.
+> **Verification status:** GitHub Actions passes on `main`; debug and signed
+> release APKs build successfully; JVM tests, Android lint, R8, and the
+> instrumentation-test APK build pass.
 > A live tunnel has **not** been verified in this development environment
 > because no physical Android device or controlled OpenVPN server was
 > available. See [docs/testing.md](docs/testing.md) for the exact verification
