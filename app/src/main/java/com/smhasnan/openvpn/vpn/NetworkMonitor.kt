@@ -12,6 +12,14 @@ import kotlinx.coroutines.flow.asStateFlow
  * Observes Android's default network. The VPN service uses this to keep the
  * VpnService's underlying network current and to record network transitions.
  * Reconnect logic itself belongs to OpenVPN Core.
+ *
+ * Default-network callbacks fire far more often than the network actually
+ * changes: onCapabilitiesChanged reports every signal-strength, bandwidth or
+ * validation update. Publishing each of those would make the service re-apply
+ * the underlying network, rebuild the notification and wake the tile for no
+ * user-visible difference, so a change is only published when the network
+ * identity, the online state or the transport description actually differs
+ * from the last published change.
  */
 class NetworkMonitor(context: Context) {
     private val connectivityManager =
@@ -24,23 +32,25 @@ class NetworkMonitor(context: Context) {
     val lastChange: StateFlow<NetworkChange?> = _lastChange.asStateFlow()
 
     private var registered = false
+    private var lastPublished: NetworkChange? = null
 
     private val callback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) {
+            val capabilities = capabilitiesOf(network)
             _currentNetwork.value = network
-            _lastChange.value = NetworkChange(network, online = true, label = describe())
+            publish(NetworkChange(network, online = isOnline(capabilities), label = describe(capabilities)))
         }
 
         override fun onLost(network: Network) {
             if (_currentNetwork.value == network) {
                 _currentNetwork.value = null
-                _lastChange.value = NetworkChange(network, online = false, label = "disconnected")
+                publish(NetworkChange(network, online = false, label = "disconnected"))
             }
         }
 
         override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
             _currentNetwork.value = network
-            _lastChange.value = NetworkChange(network, online = true, label = describe())
+            publish(NetworkChange(network, online = isOnline(capabilities), label = describe(capabilities)))
         }
     }
 
@@ -62,19 +72,41 @@ class NetworkMonitor(context: Context) {
     fun describe(): String {
         val network = _currentNetwork.value ?: connectivityManager.activeNetwork ?: return "offline"
         val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return "unknown"
-        return when {
-            capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "Wi-Fi"
-            capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "mobile data"
-            capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> "Ethernet"
-            capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN) -> "VPN"
-            else -> "network"
-        }
+        return describe(capabilities)
     }
 
     fun isOnline(): Boolean {
         val network = _currentNetwork.value ?: connectivityManager.activeNetwork ?: return false
-        val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return false
-        return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+        return isOnline(connectivityManager.getNetworkCapabilities(network))
+    }
+
+    /** Deduplicates against the last published change so collectors stay quiet. */
+    private fun publish(change: NetworkChange) {
+        val previous = lastPublished
+        if (previous != null &&
+            previous.network == change.network &&
+            previous.online == change.online &&
+            previous.label == change.label
+        ) {
+            return
+        }
+        lastPublished = change
+        _lastChange.value = change
+    }
+
+    private fun capabilitiesOf(network: Network): NetworkCapabilities? =
+        runCatching { connectivityManager.getNetworkCapabilities(network) }.getOrNull()
+
+    private fun isOnline(capabilities: NetworkCapabilities?): Boolean =
+        capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+
+    private fun describe(capabilities: NetworkCapabilities?): String = when {
+        capabilities == null -> "network"
+        capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "Wi-Fi"
+        capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "mobile data"
+        capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> "Ethernet"
+        capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN) -> "VPN"
+        else -> "network"
     }
 
     data class NetworkChange(
