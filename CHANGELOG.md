@@ -2,6 +2,34 @@
 
 All notable changes to this project are documented here.
 
+## [1.1.0] - 2026-11-10
+
+### Changed
+
+- Redesigned the interface on a new design system: calmer type scale, tonal
+  surface layers instead of outlined cards, a gradient connection hero with a
+  single primary action, a floating pill bottom navigation bar, grouped Settings
+  sections with a segmented theme control, compact profile cards with
+  authentication chips, and a cleaner diagnostics list. Screenshots in the
+  README and `docs/screenshots/` were re-captured.
+
+### Fixed
+
+- Fixed the Settings diagnostics row where the long OpenVPN "Platform" value
+  collided with its label. Key/value rows now reserve the label width and let a
+  long value wrap right-aligned instead of overlapping.
+- Fixed import rejection of username/password-only `.ovpn` profiles (for
+  example commercial provider exports such as NCVPN) that carry an inline CA
+  but no client certificate or key. OpenVPN Core 3.9 reports those valid
+  profiles as `externalPki`, so the importer refused them with "External PKI
+  profiles are not supported". The importer now appends Core's supported
+  `setenv CLIENT_CERT 0` directive to the stored merged profile, re-validates
+  it, records `clientCertNotRequired` metadata, and shows "Sign-in · no client
+  certificate" in the profile list. Profiles that genuinely request an external
+  PKI provider, and certificate-less profiles with no username/password sign-in,
+  are still rejected. Server certificate verification is unchanged. See
+  `docs/decisions/ADR-004-certificate-less-userpass-profiles.md`.
+
 ## [1.0.2] - 2026-11-10
 
 ### Fixed
