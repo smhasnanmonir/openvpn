@@ -106,4 +106,7 @@ target_link_libraries(nativevpn PRIVATE
 )
 target_link_options(nativevpn PRIVATE
     "-Wl,--exclude-libs,ALL"
+    # Android 15+ devices can use 16 KB memory pages. Align the shared object
+    # so the packaged native library loads on those devices.
+    "-Wl,-z,max-page-size=16384"
 )
