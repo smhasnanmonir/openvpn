@@ -57,11 +57,11 @@ import com.smhasnan.openvpn.vpn.LogLevel
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.StateFlow
 
 @Composable
 fun LogsScreen(
-    logs: Flow<List<LogEntry>>,
+    logs: StateFlow<List<LogEntry>>,
     onClear: () -> Unit,
     onMessage: (String) -> Unit,
     modifier: Modifier = Modifier,
