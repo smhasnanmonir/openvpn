@@ -27,6 +27,9 @@ object EngineEventMapper {
         "The VPN session ended during key renegotiation because the TLS backend could not " +
             "export keying material. Reconnect to continue."
 
+    private const val NETWORK_UNAVAILABLE_MESSAGE =
+        "No usable network is available. Check Wi-Fi or mobile data and try again."
+
     data class Mapped(
         val state: VpnState?,
         val message: String? = null,
@@ -79,10 +82,21 @@ object EngineEventMapper {
                     "TLS options for this server."
             },
         )
+        "CERT_VERIFY_FAIL" -> Mapped(
+            VpnState.ERROR,
+            info.ifBlank {
+                "The server certificate could not be verified. Check the profile's CA and " +
+                    "server identity, and make sure the device clock is correct."
+            },
+        )
+        "PROXY_NEED_CREDS" -> Mapped(
+            VpnState.ERROR,
+            info.ifBlank { "The configured proxy requires credentials." },
+        )
         "PROFILE_REJECTED", "CREDENTIALS_REJECTED", "TUN_SETUP_FAILED", "TUN_ERROR",
         "TUN_IFACE_CREATE", "TUN_IFACE_DISABLED", "ENGINE_ERROR", "CLIENT_HALT",
-        "CLIENT_SETUP", "CERT_VERIFY_FAIL", "EPKI_ERROR", "EPKI_INVALID_ALIAS",
-        "PROXY_ERROR", "PROXY_NEED_CREDS", "RELAY_ERROR", "COMPRESS_ERROR",
+        "CLIENT_SETUP", "EPKI_ERROR", "EPKI_INVALID_ALIAS",
+        "PROXY_ERROR", "RELAY_ERROR", "COMPRESS_ERROR",
         "NTLM_MISSING_CRYPTO", "SESSION_EXPIRED" -> Mapped(
             VpnState.ERROR,
             info.ifBlank { humanized(name) },
@@ -96,6 +110,9 @@ object EngineEventMapper {
                     info.contains(KEYING_MATERIAL_ERROR, ignoreCase = true) ||
                         info.contains("KEY_EXPANSION_ERROR", ignoreCase = true) ->
                         REKEY_KEY_EXPORT_MESSAGE
+                    info.contains("Network Unavailable", ignoreCase = true) ||
+                        info.contains("NETWORK_UNAVAILABLE", ignoreCase = true) ->
+                        NETWORK_UNAVAILABLE_MESSAGE
                     info.isNotBlank() -> info
                     else -> "The VPN session ended with an error."
                 },

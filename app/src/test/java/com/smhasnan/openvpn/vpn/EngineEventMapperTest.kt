@@ -123,6 +123,26 @@ class EngineEventMapperTest {
     }
 
     @Test
+    fun certificateVerificationFailureIsActionable() {
+        val mapped = EngineEventMapper.map("CERT_VERIFY_FAIL", "", true, true)
+        assertEquals(VpnState.ERROR, mapped.state)
+        assertTrue(mapped.message!!.contains("certificate", ignoreCase = true))
+        assertTrue(mapped.message!!.contains("clock", ignoreCase = true))
+    }
+
+    @Test
+    fun networkUnavailableSessionFailureIsActionable() {
+        val mapped = EngineEventMapper.map(
+            "SESSION_FINISHED",
+            "Network Unavailable",
+            error = true,
+            fatal = false,
+        )
+        assertEquals(VpnState.ERROR, mapped.state)
+        assertTrue(mapped.message!!.contains("No usable network", ignoreCase = true))
+    }
+
+    @Test
     fun nonFatalErrorEventKeepsTheCurrentStateButReportsTheDetail() {
         val mapped = EngineEventMapper.map("TRANSPORT_ERROR", "NETWORK_EOF_ERROR", true, false)
         assertNull(mapped.state)
