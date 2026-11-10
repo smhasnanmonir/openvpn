@@ -51,6 +51,39 @@ class EngineEventMapperTest {
     }
 
     @Test
+    fun unhandledEngineExceptionGetsAnActionableMessage() {
+        val mapped = EngineEventMapper.map(
+            "SESSION_FINISHED",
+            "client_connect_unhandled_exception",
+            error = true,
+            fatal = false,
+        )
+        assertEquals(VpnState.ERROR, mapped.state)
+        assertTrue(mapped.message!!.contains("unexpectedly"))
+        assertTrue(mapped.message!!.contains("Diagnostics"))
+        assertFalse(mapped.message!!.contains("client_connect_unhandled_exception"))
+    }
+
+    @Test
+    fun keyingMaterialExportFailureExplainsTheRekey() {
+        val mapped = EngineEventMapper.map(
+            "SESSION_FINISHED",
+            "TLS Keying material export error",
+            error = true,
+            fatal = false,
+        )
+        assertEquals(VpnState.ERROR, mapped.state)
+        assertTrue(mapped.message!!.contains("key renegotiation", ignoreCase = true))
+        assertTrue(mapped.message!!.contains("Reconnect", ignoreCase = true))
+    }
+
+    @Test
+    fun otherSessionFinishedErrorsKeepTheEngineDetail() {
+        val mapped = EngineEventMapper.map("SESSION_FINISHED", "failed", true, false)
+        assertEquals("failed", mapped.message)
+    }
+
+    @Test
     fun silentFatalTimeoutEventsCarryActionableMessages() {
         listOf("CONNECTION_TIMEOUT", "INACTIVE_TIMEOUT", "TLS_VERSION_MIN").forEach { name ->
             val mapped = EngineEventMapper.map(name, "", true, true)

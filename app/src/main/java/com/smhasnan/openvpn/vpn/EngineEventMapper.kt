@@ -10,6 +10,23 @@ package com.smhasnan.openvpn.vpn
  * diagnostics list would show nothing for a failed connection.
  */
 object EngineEventMapper {
+    /**
+     * Core 3.9 reports a rekey failure as this exception because
+     * `Error::KEY_EXPANSION_ERROR` is not handled by `ClientConnect`'s error
+     * switch. The raw name is meaningless to a user, so give it an actionable
+     * explanation while keeping the engine detail in Diagnostics.
+     */
+    private const val UNHANDLED_ENGINE_EXCEPTION = "client_connect_unhandled_exception"
+
+    private const val KEYING_MATERIAL_ERROR = "TLS Keying material export error"
+
+    private const val UNHANDLED_ENGINE_MESSAGE =
+        "The VPN engine stopped unexpectedly. Reconnect to continue; Diagnostics has the engine error."
+
+    private const val REKEY_KEY_EXPORT_MESSAGE =
+        "The VPN session ended during key renegotiation because the TLS backend could not " +
+            "export keying material. Reconnect to continue."
+
     data class Mapped(
         val state: VpnState?,
         val message: String? = null,
@@ -62,7 +79,15 @@ object EngineEventMapper {
         "SESSION_FINISHED" -> when {
             error -> Mapped(
                 VpnState.ERROR,
-                info.ifBlank { "The VPN session ended with an error." },
+                when {
+                    info.contains(UNHANDLED_ENGINE_EXCEPTION, ignoreCase = true) ->
+                        UNHANDLED_ENGINE_MESSAGE
+                    info.contains(KEYING_MATERIAL_ERROR, ignoreCase = true) ||
+                        info.contains("KEY_EXPANSION_ERROR", ignoreCase = true) ->
+                        REKEY_KEY_EXPORT_MESSAGE
+                    info.isNotBlank() -> info
+                    else -> "The VPN session ended with an error."
+                },
             )
             else -> Mapped(VpnState.DISCONNECTED, clearError = true)
         }
