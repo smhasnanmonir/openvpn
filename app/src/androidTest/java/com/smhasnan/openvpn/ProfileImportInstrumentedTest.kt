@@ -24,7 +24,7 @@ class ProfileImportInstrumentedTest {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
         val content = instrumentation.context.assets.open("test-profile.ovpn").bufferedReader().use { it.readText() }
-        val file = File(context.cacheDir, "instrumented-${System.nanoTime()}.ovpn")
+        val file = File(context.cacheDir, "Lab Server.ovpn")
         file.writeText(content)
         try {
             val repository = context.appContainer.profiles
