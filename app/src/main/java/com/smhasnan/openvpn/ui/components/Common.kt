@@ -51,6 +51,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.smhasnan.openvpn.config.EmojiCatalog
 import com.smhasnan.openvpn.ui.theme.Dimens
 import com.smhasnan.openvpn.ui.theme.StatusAmberInk
 import com.smhasnan.openvpn.ui.theme.StatusAmberLight
@@ -108,6 +109,10 @@ fun ProfileAvatar(
 ) {
     val scheme = MaterialTheme.colorScheme
     val borderColor = if (selected) scheme.primary else scheme.outlineVariant.copy(alpha = 0.7f)
+    // A custom icon may use two emoji; render those slightly smaller and on one
+    // line so they stay inside the circle instead of wrapping or clipping.
+    val clusters = EmojiCatalog.clusterCount(emoji).coerceIn(1, 2)
+    val emojiScale = if (clusters > 1) 0.30f else 0.42f
     Box(
         modifier = modifier
             .size(size)
@@ -124,9 +129,12 @@ fun ProfileAvatar(
     ) {
         Text(
             text = emoji,
-            fontSize = (size.value * 0.42f).sp,
-            lineHeight = (size.value * 0.48f).sp,
+            fontSize = (size.value * emojiScale).sp,
+            lineHeight = (size.value * (emojiScale + 0.06f)).sp,
             textAlign = TextAlign.Center,
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Clip,
         )
     }
 }

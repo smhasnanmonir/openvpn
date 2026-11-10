@@ -46,6 +46,9 @@ object EmojiCatalog {
         return clusters.size in 1..MAX_GRAPHEME_CLUSTERS && clusters.all { isEmojiCluster(value, it) }
     }
 
+    /** Number of folded extended grapheme clusters; the avatar renderer scales by this. */
+    fun clusterCount(value: String): Int = clusterRanges(value).size
+
     /**
      * Splits [value] into extended grapheme clusters. The JVM [BreakIterator] uses legacy cluster
      * rules that split ZWJ sequences, skin-tone modifiers, flags and tag sequences into several
