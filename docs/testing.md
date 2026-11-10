@@ -38,7 +38,7 @@ taps. Do not generalize the emulator result into a full leak-protection claim.
 | OpenVPN Core | release/3.9 `10c6a56` |
 | ABIs built | arm64-v8a, x86_64 |
 | Signing | RSA-4096 release key (not committed) |
-| CI | main run `42736092481` (commit `96cf898`); tag runs `42736907921` (`v1.0.0`) and `42737674467` (`v1.0.1`), **success** |
+| CI | main run `42736092481`; tag runs `42736907921` (`v1.0.0`), `42737674467` (`v1.0.1`), and `42745278800` (`v1.0.2`), **success** |
 
 ## Commands run and results
 
@@ -112,31 +112,26 @@ resource-shrunk, and signed. APK signature verified with `apksigner` (v2 + v3).
 JNI callback method names were checked in the R8 output with `dexdump` and
 remain unobfuscated.
 
-Local final artifact (commit `96cf898`, both ABIs):
-
-```
-size:    6.6 MB
-sha256:  ef6c62b0fa9f35c27ff9d844e3dde5f7a6218ed3b1de3c1fb33896a694a4c5e0
-```
-
-A CI-built APK for a tag is rebuilt with the tag's `APP_VERSION_CODE` and a new
-signing timestamp, so its byte hash can differ. Compare the signing certificate
-digest and build metadata instead of expecting the same bytes.
-
-Published `v1.0.1` GitHub Release asset (built by GitHub Actions, verified with
-`apksigner` and `aapt2`):
+Published `v1.0.2` GitHub Release asset (built by GitHub Actions, verified with
+`apksigner` and `aapt2`, and exercised on the Android 11 emulator):
 
 ```
 name:         app-release.apk
-versionName:  1.0.1
-versionCode:  10
-size:         6,869,198 bytes
-sha256:       b63039f1230869421455d78e573b21360a1fa8463a226003d1575164f01cf78a
+versionName:  1.0.2
+versionCode:  14
+size:         6,904,443 bytes
+sha256:       38e599042e9b3277ba15c797f14d22c22cdbda6cd3e1c23b56736561700fc5e2
 cert sha256:  834d2a58261a6c4113a3170953c1eea4a30d65ebc5ba4386408f09039dd00c9c
 ```
 
-`v1.0.0` was also published and verified; `v1.0.1` adds the full third-party
-license texts and final verification docs.
+The signed release APK was installed on the emulator, launched, and ran the
+mbedTLS crypto self-test successfully under R8. A CI-built APK for a tag uses
+the tag's `APP_VERSION_CODE` and a new signing timestamp, so its byte hash can
+differ from a local build. Compare the signing certificate digest and `aapt2`
+badging.
+
+`v1.0.0` and `v1.0.1` are marked superseded/pre-release: they contained an
+Activity initialization crash; v1.0.1 also lacked the final TUN delegation fix.
 
 ### Instrumentation test APK
 
