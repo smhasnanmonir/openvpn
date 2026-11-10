@@ -39,16 +39,31 @@ object VpnController {
 
     fun engineEvent(name: String, info: String, error: Boolean, fatal: Boolean) {
         val mapped = EngineEventMapper.map(name, info, error, fatal)
-        if (mapped.message != null) {
-            appendLog(if (error) LogLevel.ERROR else LogLevel.INFO, info)
-        } else if (name !in setOf("SESSION_FINISHED")) {
-            appendLog(LogLevel.INFO, "$name${if (info.isBlank()) "" else ": $info"}")
+        // Always record the engine's failure reason. Fatal core events such as
+        // CONNECTION_TIMEOUT carry no info text, so the mapped message is the
+        // only usable explanation and must reach the diagnostics list.
+        when {
+            error || fatal -> appendLog(LogLevel.ERROR, mapped.message ?: name)
+            name != "SESSION_FINISHED" ->
+                appendLog(LogLevel.INFO, "$name${if (info.isBlank()) "" else ": $info"}")
         }
 
         _snapshot.update { current ->
+            // A fatal failure is followed by a non-error DISCONNECTED event; do
+            // not downgrade an error to a clean "inactive" state.
+            if (name == "DISCONNECTED") {
+                when (current.state) {
+                    VpnState.ERROR, VpnState.AUTH_FAILED,
+                    VpnState.PREPARING, VpnState.CONNECTING, VpnState.RECONNECTING ->
+                        return@update current
+                    else -> Unit
+                }
+            }
             // A successful SESSION_FINISHED frequently follows the core's final
             // DISCONNECTED event. Do not erase a real error that preceded it.
-            if (name == "SESSION_FINISHED" && !error && current.state == VpnState.ERROR) {
+            if (name == "SESSION_FINISHED" && !error &&
+                (current.state == VpnState.ERROR || current.state == VpnState.AUTH_FAILED)
+            ) {
                 return@update current
             }
             val next = mapped.state ?: return@update current
