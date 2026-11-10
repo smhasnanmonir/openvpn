@@ -67,7 +67,8 @@ protocol or cryptography.
 Captured from an Android 16 (API 36) x86_64 emulator, debug build, with the
 current UI. The certificate-less username/password profile shown is a provider
 export; the real tunnel was verified separately on an earlier emulator run (see
-`docs/testing.md`).
+`docs/testing.md`). The captures predate the Unreleased Home network-card
+redesign and profile switcher described above.
 
 | Home | Profiles |
 |---|---|
