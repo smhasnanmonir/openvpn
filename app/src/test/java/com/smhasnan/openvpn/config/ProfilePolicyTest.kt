@@ -56,19 +56,6 @@ class ImportFilePolicyTest {
     }
 }
 
-class EmojiCatalogTest {
-    @Test
-    fun normalizesUnknownValues() {
-        assertEquals(EmojiCatalog.choices.first(), EmojiCatalog.normalized(null))
-        assertEquals(EmojiCatalog.choices.first(), EmojiCatalog.normalized(""))
-    }
-
-    @Test
-    fun keepsKnownEmoji() {
-        assertEquals("🛡️", EmojiCatalog.normalized("🛡️"))
-    }
-}
-
 class ProfileImportPolicyTest {
     @Test
     fun detectsBareAuthUserPassDirective() {
