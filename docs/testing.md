@@ -229,6 +229,11 @@ Results on the fixed debug build:
   banner and ERROR log row (e.g. "Connection timed out before the TLS handshake
   completed…", "server pushed compression settings that are not allowed…"), and
   a following `DISCONNECTED` event no longer erases the error.
+- **Upgrade path:** a profile imported by an earlier app version (stored with
+  the legacy `tls-cipher` pin) was connected after the update without
+  re-importing: the handshake completed and the (deliberately invalid) test
+  credentials produced `AUTH_FAILED` ("Sign-in was rejected") instead of the old
+  silent TLS timeout, confirming connect-time normalization.
 - **Automated:** 52 JVM unit tests pass (new `VpnController` state-machine tests
   and `tls-cipher` policy tests); lint reports 0 errors.
 

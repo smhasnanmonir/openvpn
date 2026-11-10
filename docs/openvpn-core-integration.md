@@ -191,8 +191,10 @@ profiles connectable with the pinned 3.9 core:
 - Legacy `tls-cipher` pins are dropped at import time when every suite in the
   directive is a non-ECDHE (TLS 1.2 legacy) suite; those servers now negotiate
   TLS 1.3 and the pinned list otherwise stalls the handshake until the timeout.
-  This is profile normalization in the app, not a core API; Core still parses
-  and validates the modified profile (see `docs/profile-import.md`).
+  The same normalization is applied at connect time so profiles stored by
+  earlier app versions work after an update. This is profile normalization in
+  the app, not a core API; Core still parses and validates the modified profile
+  (see `docs/profile-import.md`).
 
 ### Events
 

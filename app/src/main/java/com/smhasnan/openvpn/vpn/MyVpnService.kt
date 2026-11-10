@@ -18,6 +18,7 @@ import androidx.core.content.ContextCompat
 import com.smhasnan.openvpn.MainActivity
 import com.smhasnan.openvpn.appContainer
 import com.smhasnan.openvpn.config.ProfileCredentials
+import com.smhasnan.openvpn.config.ProfileImportPolicy
 import com.smhasnan.openvpn.config.StoredProfile
 import com.smhasnan.openvpn.nativevpn.NativeCallbacks
 import com.smhasnan.openvpn.nativevpn.NativeEngine
@@ -255,8 +256,19 @@ class MyVpnService : VpnService() {
                     session = newSession
                 }
 
+                // Profiles imported before the compatibility fix still carry a
+                // legacy-only tls-cipher pin; normalize at connect time as well
+                // so an app update fixes existing profiles without re-import.
+                val connectConfig = ProfileImportPolicy.withNegotiableTlsCiphers(stored.config)
+                if (connectConfig != stored.config) {
+                    VpnController.appendLog(
+                        LogLevel.INFO,
+                        "Removed a legacy-only tls-cipher pin for this connection (profile imported before 1.1.2).",
+                    )
+                }
+
                 val started = newSession.connect(
-                    config = stored.config,
+                    config = connectConfig,
                     username = credentials.username,
                     password = credentials.password,
                     response = credentials.response,

@@ -34,9 +34,11 @@ renderers are empty; that separate defect was fixed in the event/logging layer
 
 ## Decision
 
-1. **`tls-cipher` normalization at import.** When every suite in a real
-   `tls-cipher` directive is a legacy non-ECDHE suite, remove that directive from
-   the stored merged profile and re-validate with `eval_config`. `tls-cipher`
+1. **`tls-cipher` normalization at import and connect.** When every suite in a
+   real `tls-cipher` directive is a legacy non-ECDHE suite, remove that directive
+   from the stored merged profile and re-validate with `eval_config`. The same
+   normalization is applied at connect time so profiles imported by earlier app
+   versions (stored with the pin) also work without re-importing. `tls-cipher`
    only selects TLS 1.2 suites; TLS 1.3 suites are negotiated by the TLS library
    regardless, so the pin cannot help a TLS 1.3-only server. Pins that contain an
    ECDHE suite are kept, commented-out lines are ignored, and the action is

@@ -2,6 +2,17 @@
 
 All notable changes to this project are documented here.
 
+## [1.1.2] - 2026-11-10
+
+### Fixed
+
+- Profiles imported by earlier versions keep their legacy-only `tls-cipher` pin
+  in encrypted storage. The compatibility normalization is now also applied when
+  connecting, so updating the app is enough to connect to TLS 1.3-only provider
+  servers; re-importing the `.ovpn` is no longer required. The adaptation is
+  logged to diagnostics ("Removed a legacy-only tls-cipher pin for this
+  connection").
+
 ## [1.1.1] - 2026-11-10
 
 ### Fixed

@@ -98,9 +98,11 @@ until the timeout without any authentication error. When every suite in a real
 (not commented-out) `tls-cipher` directive is a legacy non-ECDHE suite, the
 importer removes that directive, validates the profile again, and logs
 "removed a legacy-only tls-cipher pin …" to diagnostics. Pins that still contain
-an ECDHE suite are left untouched. This only drops an obsolete TLS 1.2 cipher
-selection; TLS 1.3 cipher suites are negotiated by the TLS library regardless,
-and certificate verification is never weakened.
+an ECDHE suite are left untouched. The same normalization is applied when
+connecting to profiles imported by earlier app versions (stored with the pin),
+so updating the app fixes existing profiles without re-importing them. This only
+drops an obsolete TLS 1.2 cipher selection; TLS 1.3 cipher suites are negotiated
+by the TLS library regardless, and certificate verification is never weakened.
 
 ## Validation and rejection
 
