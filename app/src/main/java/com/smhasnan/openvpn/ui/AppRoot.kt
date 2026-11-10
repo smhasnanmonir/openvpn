@@ -84,7 +84,6 @@ fun AppRoot(
     val selectedId by viewModel.selectedId.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val snapshot by viewModel.vpn.collectAsStateWithLifecycle()
-    val logs by viewModel.logs.collectAsStateWithLifecycle()
     val ipState by viewModel.ipState.collectAsStateWithLifecycle()
     val credentialPrompt by viewModel.credentialPrompt.collectAsStateWithLifecycle()
     val importReport by viewModel.importReport.collectAsStateWithLifecycle()
@@ -201,7 +200,7 @@ fun AppRoot(
             )
 
             AppTab.LOGS -> LogsScreen(
-                logs = logs,
+                logs = viewModel.logs,
                 onClear = viewModel::clearLogs,
                 onMessage = { viewModel.message(it) },
                 modifier = Modifier.padding(innerPadding),
