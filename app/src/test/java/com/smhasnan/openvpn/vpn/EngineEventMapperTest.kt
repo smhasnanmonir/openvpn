@@ -107,6 +107,22 @@ class EngineEventMapperTest {
     }
 
     @Test
+    fun pauseAfterAConnectedSessionKeepsTheSessionAlive() {
+        val mapped = EngineEventMapper.map("PAUSE", "", false, false)
+        assertEquals(VpnState.RECONNECTING, mapped.state)
+        assertTrue(mapped.clearError)
+        assertTrue(mapped.message!!.contains("timed out", ignoreCase = true))
+        assertTrue(mapped.message!!.contains("retry", ignoreCase = true))
+    }
+
+    @Test
+    fun resumeReturnsToTheReconnectingStateAndClearsTheError() {
+        val mapped = EngineEventMapper.map("RESUME", "", false, false)
+        assertEquals(VpnState.RECONNECTING, mapped.state)
+        assertTrue(mapped.clearError)
+    }
+
+    @Test
     fun nonFatalErrorEventKeepsTheCurrentStateButReportsTheDetail() {
         val mapped = EngineEventMapper.map("TRANSPORT_ERROR", "NETWORK_EOF_ERROR", true, false)
         assertNull(mapped.state)

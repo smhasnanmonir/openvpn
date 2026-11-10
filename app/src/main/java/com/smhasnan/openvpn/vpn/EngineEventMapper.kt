@@ -38,6 +38,17 @@ object EngineEventMapper {
         "CONNECTING" -> Mapped(VpnState.CONNECTING, clearError = true)
         "CONNECTED" -> Mapped(VpnState.CONNECTED, clearError = true)
         "RECONNECTING" -> Mapped(VpnState.RECONNECTING, clearError = true)
+        // Core pauses instead of stopping when a reconnect attempt exceeds
+        // connTimeout after the session has already been connected. The
+        // service keeps the session alive and retries when the network is
+        // usable again (for example after the device wakes from sleep).
+        "PAUSE" -> Mapped(
+            VpnState.RECONNECTING,
+            "The connection attempt timed out. The session is kept alive and will retry " +
+                "when the network is available.",
+            clearError = true,
+        )
+        "RESUME" -> Mapped(VpnState.RECONNECTING, clearError = true)
         // The core emits DISCONNECTED right after a fatal failure as well; the
         // transition is handled by VpnController so an error is not erased.
         "DISCONNECTED" -> Mapped(VpnState.DISCONNECTED)

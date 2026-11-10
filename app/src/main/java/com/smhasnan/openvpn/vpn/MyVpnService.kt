@@ -26,6 +26,7 @@ import com.smhasnan.openvpn.nativevpn.NativeEngine
 import com.smhasnan.openvpn.nativevpn.NativeSession
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
@@ -55,6 +56,9 @@ class MyVpnService : VpnService() {
 
         const val EXTRA_PROFILE_ID = "profile_id"
         const val EXTRA_CHALLENGE_RESPONSE = "challenge_response"
+
+        /** How often a paused session checks whether it can resume. */
+        private const val RESUME_RETRY_INTERVAL_MS = 5_000L
 
         fun connect(context: Context, profileId: String) {
             val intent = Intent(context, MyVpnService::class.java)
@@ -89,6 +93,7 @@ class MyVpnService : VpnService() {
 
     // Read from the stats coroutine and engine callbacks without the session lock.
     @Volatile private var session: NativeSession? = null
+    @Volatile private var resumeJob: Job? = null
     private lateinit var networkMonitor: NetworkMonitor
     private lateinit var powerManager: PowerManager
     private var warnedAboutLegacyIpv6Protection = false
@@ -164,6 +169,7 @@ class MyVpnService : VpnService() {
 
     override fun onDestroy() {
         destroyed = true
+        resumeJob?.cancel()
         serviceScope.cancel()
         networkMonitor.stop()
         val current = synchronized(sessionLock) {
@@ -390,6 +396,7 @@ class MyVpnService : VpnService() {
 
     private fun requestDisconnect(revoked: Boolean) {
         finishing.set(true)
+        resumeJob?.cancel()
         if (!revoked && VpnController.snapshot.value.state != VpnState.ERROR) {
             VpnController.disconnecting()
         }
@@ -416,8 +423,33 @@ class MyVpnService : VpnService() {
         }
     }
 
+    /**
+     * Core pauses a session instead of stopping it when a reconnect attempt
+     * times out after the connection was already established. Keep the
+     * foreground service and retry; the core emits RESUME (or PAUSE again) on
+     * the next attempt.
+     */
+    private fun onPaused() {
+        VpnController.appendLog(
+            LogLevel.WARN,
+            "Connection attempt timed out; keeping the session alive and retrying.",
+        )
+        resumeJob?.cancel()
+        resumeJob = serviceScope.launch {
+            while (isActive) {
+                delay(RESUME_RETRY_INTERVAL_MS)
+                if (VpnController.snapshot.value.state != VpnState.RECONNECTING) return@launch
+                if (!networkMonitor.isOnline()) continue
+                val active = session ?: return@launch
+                VpnController.appendLog(LogLevel.INFO, "Resuming the VPN session")
+                if (active.resume()) return@launch
+            }
+        }
+    }
+
     private fun onSessionFinished() {
         if (!finishing.compareAndSet(false, true)) return
+        resumeJob?.cancel()
         // Do not join the native worker from its own callback thread. The native
         // worker sends SESSION_FINISHED immediately before returning.
         serviceScope.launch {
@@ -646,6 +678,7 @@ class MyVpnService : VpnService() {
             VpnController.engineEvent(name, info, error, fatal)
             when (name) {
                 "CONNECTED" -> {
+                    resumeJob?.cancel()
                     val active = session
                     if (active != null) {
                         // Fetch details once here; the stats loop only reads counters.
@@ -657,7 +690,12 @@ class MyVpnService : VpnService() {
                         }
                     }
                 }
-                "SESSION_FINISHED" -> onSessionFinished()
+                "PAUSE" -> onPaused()
+                "RESUME" -> resumeJob?.cancel()
+                "SESSION_FINISHED" -> {
+                    resumeJob?.cancel()
+                    onSessionFinished()
+                }
             }
             updateNotification()
         }
