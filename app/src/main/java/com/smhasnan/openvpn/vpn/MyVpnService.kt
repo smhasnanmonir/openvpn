@@ -12,6 +12,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.ParcelFileDescriptor
+import android.os.PowerManager
 import android.system.OsConstants
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
@@ -25,11 +26,12 @@ import com.smhasnan.openvpn.nativevpn.NativeEngine
 import com.smhasnan.openvpn.nativevpn.NativeSession
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.json.JSONObject
@@ -84,15 +86,17 @@ class MyVpnService : VpnService() {
     private val starting = AtomicBoolean(false)
     private val finishing = AtomicBoolean(false)
 
-    private var session: NativeSession? = null
-    private var statsJob: Job? = null
+    // Read from the stats coroutine and engine callbacks without the session lock.
+    @Volatile private var session: NativeSession? = null
     private lateinit var networkMonitor: NetworkMonitor
+    private lateinit var powerManager: PowerManager
     private var warnedAboutLegacyIpv6Protection = false
     @Volatile private var destroyed = false
 
     override fun onCreate() {
         super.onCreate()
         VpnNotification.createChannels(this)
+        powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
         networkMonitor = NetworkMonitor(this)
         networkMonitor.start()
         serviceScope.launch {
@@ -103,10 +107,12 @@ class MyVpnService : VpnService() {
                         "Network changed: ${change.label}",
                     )
                     applyUnderlyingNetwork()
+                    refreshConnectionDetails()
                     updateNotification()
                 }
             }
         }
+        startStatsObservation()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -157,7 +163,6 @@ class MyVpnService : VpnService() {
 
     override fun onDestroy() {
         destroyed = true
-        statsJob?.cancel()
         serviceScope.cancel()
         networkMonitor.stop()
         val current = synchronized(sessionLock) {
@@ -285,7 +290,6 @@ class MyVpnService : VpnService() {
                 }
                 VpnController.appendLog(LogLevel.INFO, "Connection request handed to OpenVPN Core")
                 updateNotification()
-                startStatsPolling(newSession)
             } catch (e: Exception) {
                 fail("Could not start the VPN: ${e.message ?: e.javaClass.simpleName}")
             } finally {
@@ -313,22 +317,52 @@ class MyVpnService : VpnService() {
         return null
     }
 
-    private fun startStatsPolling(activeSession: NativeSession) {
-        statsJob?.cancel()
-        statsJob = serviceScope.launch {
-            while (isActive) {
-                val state = VpnController.snapshot.value.state
-                if (state == VpnState.CONNECTED || state == VpnState.RECONNECTING) {
-                    val stats = NativeEngine.stats(activeSession.statsJson())
-                    if (stats.hasData || stats.packetsIn > 0 || stats.packetsOut > 0) {
-                        VpnController.updateStats(stats)
-                    }
-                    val details = NativeEngine.connectionDetails(activeSession.connectionInfoJson())
-                    if (details.serverHost != null || details.vpnIp4 != null || details.vpnIp6 != null) {
-                        VpnController.updateDetails(details)
+    /**
+     * Traffic counters are only meaningful while the tunnel can move packets,
+     * so polling follows VpnController's state instead of running forever.
+     * collectLatest cancels the loop as soon as the state is no longer
+     * CONNECTED/RECONNECTING, and the screen state then picks the cadence.
+     */
+    private fun startStatsObservation() {
+        serviceScope.launch {
+            VpnController.snapshot
+                .map { it.state }
+                .distinctUntilChanged()
+                .collectLatest { state ->
+                    if (!StatsRefreshPolicy.shouldPoll(state)) return@collectLatest
+                    while (isActive) {
+                        pollTrafficStats()
+                        delay(StatsRefreshPolicy.intervalMs(powerManager.isInteractive))
                     }
                 }
-                delay(1_500L)
+        }
+    }
+
+    private fun pollTrafficStats() {
+        // The state can change while the native call is in flight; never publish
+        // counters for a session that is already closing.
+        if (!StatsRefreshPolicy.shouldPoll(VpnController.snapshot.value.state)) return
+        val active = session ?: return
+        // A closing session can make native calls fail; a stats refresh must
+        // never take the service coroutine down.
+        val stats = runCatching { NativeEngine.stats(active.statsJson()) }.getOrNull() ?: return
+        if (stats.hasData || stats.packetsIn > 0 || stats.packetsOut > 0) {
+            VpnController.updateStats(stats)
+        }
+    }
+
+    /**
+     * Connection details can change with the transport the core ends up using,
+     * so they are refreshed once when the underlying network changes. The
+     * stats loop itself never re-reads them.
+     */
+    private suspend fun refreshConnectionDetails() {
+        val active = session ?: return
+        if (VpnController.snapshot.value.state != VpnState.CONNECTED) return
+        runCatching {
+            val details = NativeEngine.connectionDetails(active.connectionInfoJson())
+            if (details.serverHost != null || details.vpnIp4 != null || details.vpnIp6 != null) {
+                VpnController.updateDetails(details)
             }
         }
     }
@@ -355,7 +389,6 @@ class MyVpnService : VpnService() {
 
     private fun requestDisconnect(revoked: Boolean) {
         finishing.set(true)
-        statsJob?.cancel()
         if (!revoked && VpnController.snapshot.value.state != VpnState.ERROR) {
             VpnController.disconnecting()
         }
@@ -388,7 +421,6 @@ class MyVpnService : VpnService() {
         // worker sends SESSION_FINISHED immediately before returning.
         serviceScope.launch {
             delay(80L)
-            statsJob?.cancel()
             val current = synchronized(sessionLock) {
                 session.also { session = null }
             }
@@ -608,10 +640,13 @@ class MyVpnService : VpnService() {
                 "CONNECTED" -> {
                     val active = session
                     if (active != null) {
-                        val details = NativeEngine.connectionDetails(active.connectionInfoJson())
-                        VpnController.updateDetails(details)
-                        val stats = NativeEngine.stats(active.statsJson())
-                        VpnController.updateStats(stats)
+                        // Fetch details once here; the stats loop only reads counters.
+                        runCatching {
+                            val details = NativeEngine.connectionDetails(active.connectionInfoJson())
+                            VpnController.updateDetails(details)
+                            val stats = NativeEngine.stats(active.statsJson())
+                            VpnController.updateStats(stats)
+                        }
                     }
                 }
                 "SESSION_FINISHED" -> onSessionFinished()
