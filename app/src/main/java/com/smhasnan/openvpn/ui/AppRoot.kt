@@ -10,18 +10,23 @@ import android.provider.Settings
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Warning
@@ -29,11 +34,10 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -44,8 +48,11 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -159,26 +166,7 @@ fun AppRoot(
         containerColor = MaterialTheme.colorScheme.background,
         snackbarHost = { SnackbarHost(snackbarHostState) },
         bottomBar = {
-            NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
-                AppTab.entries.forEach { item ->
-                    NavigationBarItem(
-                        selected = tab == item,
-                        onClick = { tab = item },
-                        icon = {
-                            Icon(
-                                imageVector = when (item) {
-                                    AppTab.HOME -> Icons.Filled.Home
-                                    AppTab.PROFILES -> Icons.Filled.Person
-                                    AppTab.LOGS -> Icons.Filled.List
-                                    AppTab.SETTINGS -> Icons.Filled.Settings
-                                },
-                                contentDescription = item.label,
-                            )
-                        },
-                        label = { Text(item.label) },
-                    )
-                }
-            }
+            AppBottomBar(selected = tab, onSelect = { tab = it })
         },
     ) { innerPadding ->
         when (tab) {
@@ -270,6 +258,82 @@ fun AppRoot(
     importReport?.let { report ->
         ImportReportDialog(report = report, onDismiss = viewModel::dismissImportReport)
     }
+}
+
+private val AppTab.icon: ImageVector
+    get() = when (this) {
+        AppTab.HOME -> Icons.Filled.Home
+        AppTab.PROFILES -> Icons.Filled.Person
+        AppTab.LOGS -> Icons.AutoMirrored.Filled.List
+        AppTab.SETTINGS -> Icons.Filled.Settings
+    }
+
+/**
+ * Floating pill navigation bar: the selected tab is a filled accent pill, the
+ * rest are quiet icons. Replaces the stock Material navigation bar so the app
+ * chrome matches the tonal card design.
+ */
+@Composable
+private fun AppBottomBar(selected: AppTab, onSelect: (AppTab) -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    val dark = scheme.background.luminanceCompat() < 0.5f
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .navigationBarsPadding()
+            .padding(horizontal = 18.dp, vertical = 8.dp),
+    ) {
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(24.dp),
+            color = scheme.surface,
+            shadowElevation = if (dark) 0.dp else 8.dp,
+            border = if (dark) BorderStroke(1.dp, scheme.outlineVariant) else null,
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                AppTab.entries.forEach { item ->
+                    val isSelected = selected == item
+                    Surface(
+                        onClick = { onSelect(item) },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(18.dp),
+                        color = if (isSelected) scheme.primary else Color.Transparent,
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(vertical = 7.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(3.dp),
+                        ) {
+                            Icon(
+                                imageVector = item.icon,
+                                contentDescription = item.label,
+                                tint = if (isSelected) scheme.onPrimary else scheme.onSurfaceVariant,
+                                modifier = Modifier.size(19.dp),
+                            )
+                            Text(
+                                text = item.label,
+                                style = MaterialTheme.typography.labelMedium.copy(
+                                    fontSize = 10.5.sp,
+                                    letterSpacing = 0.2.sp,
+                                ),
+                                color = if (isSelected) scheme.onPrimary else scheme.onSurfaceVariant,
+                                maxLines = 1,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun Color.luminanceCompat(): Float {
+    fun channel(value: Float): Float =
+        if (value <= 0.03928f) value / 12.92f else ((value + 0.055f) / 1.055f).let { it * it * it }
+    return 0.2126f * channel(red) + 0.7152f * channel(green) + 0.0722f * channel(blue)
 }
 
 private fun launchService(

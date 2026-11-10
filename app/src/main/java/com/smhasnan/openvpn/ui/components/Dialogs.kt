@@ -4,25 +4,26 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -67,6 +68,9 @@ data class CredentialPrompt(
     val allowPasswordSave: Boolean = true,
 )
 
+private val DialogShape = RoundedCornerShape(22.dp)
+private val DialogActionShape = RoundedCornerShape(14.dp)
+
 @Composable
 fun CredentialsDialog(
     prompt: CredentialPrompt,
@@ -83,12 +87,15 @@ fun CredentialsDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
+        shape = DialogShape,
+        containerColor = MaterialTheme.colorScheme.surface,
         title = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 ProfileAvatar(prompt.emoji, size = 40.dp)
                 Spacer(Modifier.width(12.dp))
                 Column {
                     Text("Sign in", style = MaterialTheme.typography.titleLarge)
+                    Spacer(Modifier.height(2.dp))
                     Text(
                         prompt.profileName,
                         style = MaterialTheme.typography.bodySmall,
@@ -231,6 +238,7 @@ fun CredentialsDialog(
                         )
                     }
                 },
+                shape = DialogActionShape,
             ) {
                 Text("Connect")
             }
@@ -251,6 +259,8 @@ fun ChallengeDialog(
     var error by remember { mutableStateOf<String?>(null) }
     AlertDialog(
         onDismissRequest = onDismiss,
+        shape = DialogShape,
+        containerColor = MaterialTheme.colorScheme.surface,
         title = { Text("Server challenge") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -268,10 +278,13 @@ fun ChallengeDialog(
             }
         },
         confirmButton = {
-            Button(onClick = {
-                if (response.isBlank()) error = "Enter the requested response."
-                else onSubmit(response)
-            }) { Text("Submit") }
+            Button(
+                onClick = {
+                    if (response.isBlank()) error = "Enter the requested response."
+                    else onSubmit(response)
+                },
+                shape = DialogActionShape,
+            ) { Text("Submit") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
@@ -287,6 +300,8 @@ fun RenameDialog(
     var error by remember { mutableStateOf<String?>(null) }
     AlertDialog(
         onDismissRequest = onDismiss,
+        shape = DialogShape,
+        containerColor = MaterialTheme.colorScheme.surface,
         title = { Text("Rename profile") },
         text = {
             Column {
@@ -315,10 +330,13 @@ fun RenameDialog(
             }
         },
         confirmButton = {
-            Button(onClick = {
-                ProfileNameValidator.validate(value).onSuccess { onRename(it) }
-                    .onFailure { error = it.message }
-            }) { Text("Save") }
+            Button(
+                onClick = {
+                    ProfileNameValidator.validate(value).onSuccess { onRename(it) }
+                        .onFailure { error = it.message }
+                },
+                shape = DialogActionShape,
+            ) { Text("Save") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
@@ -332,6 +350,8 @@ fun EmojiPickerDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
+        shape = DialogShape,
+        containerColor = MaterialTheme.colorScheme.surface,
         title = { Text("Choose an icon") },
         text = {
             LazyVerticalGrid(
@@ -342,24 +362,28 @@ fun EmojiPickerDialog(
             ) {
                 items(EmojiCatalog.choices) { emoji ->
                     val selected = emoji == current
-                    Text(
-                        text = emoji,
-                        fontSize = 26.sp,
+                    Box(
                         modifier = Modifier
-                            .size(46.dp)
-                            .clip(CircleShape)
+                            .fillMaxWidth()
+                            .aspectRatio(1f)
+                            .clip(RoundedCornerShape(12.dp))
                             .background(
                                 if (selected) MaterialTheme.colorScheme.primaryContainer
-                                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                                else MaterialTheme.colorScheme.surfaceContainer,
                             )
                             .border(
                                 if (selected) 2.dp else 0.dp,
-                                if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface,
-                                CircleShape,
+                                MaterialTheme.colorScheme.primary,
+                                RoundedCornerShape(12.dp),
                             )
-                            .clickable { onPick(emoji) }
-                            .padding(7.dp),
-                    )
+                            .clickable { onPick(emoji) },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = emoji,
+                            fontSize = 24.sp,
+                        )
+                    }
                 }
             }
         },
@@ -376,6 +400,8 @@ fun DeleteProfileDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
+        shape = DialogShape,
+        containerColor = MaterialTheme.colorScheme.surface,
         title = { Text("Delete profile?") },
         text = {
             Text(
@@ -384,7 +410,14 @@ fun DeleteProfileDialog(
             )
         },
         confirmButton = {
-            Button(onClick = onDelete) { Text("Delete") }
+            Button(
+                onClick = onDelete,
+                shape = DialogActionShape,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.error,
+                    contentColor = MaterialTheme.colorScheme.onError,
+                ),
+            ) { Text("Delete") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Keep") } },
     )

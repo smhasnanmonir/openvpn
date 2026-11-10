@@ -3,6 +3,7 @@ package com.smhasnan.openvpn.ui
 import android.content.Intent
 import android.provider.Settings
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -14,20 +15,20 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.background
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
-import androidx.compose.material3.FilterChip
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -36,10 +37,16 @@ import com.smhasnan.openvpn.BuildConfig
 import com.smhasnan.openvpn.settings.AppSettings
 import com.smhasnan.openvpn.settings.ThemeMode
 import com.smhasnan.openvpn.ui.components.DividerLine
-import com.smhasnan.openvpn.ui.components.InfoRow
+import com.smhasnan.openvpn.ui.components.KeyValueRow
+import com.smhasnan.openvpn.ui.components.LinkRow
 import com.smhasnan.openvpn.ui.components.MessageBanner
+import com.smhasnan.openvpn.ui.components.MetaChip
 import com.smhasnan.openvpn.ui.components.ScreenHeader
 import com.smhasnan.openvpn.ui.components.SectionCard
+import com.smhasnan.openvpn.ui.components.SectionLabel
+import com.smhasnan.openvpn.ui.components.SegmentedOptions
+import com.smhasnan.openvpn.ui.components.ToggleRow
+import com.smhasnan.openvpn.ui.theme.Dimens
 
 @Composable
 fun SettingsScreen(
@@ -56,96 +63,98 @@ fun SettingsScreen(
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
+    val coreVersion = engineInfo["coreVersion"] ?: "unknown"
+    val platform = remember(engineInfo["platform"], coreVersion) {
+        val raw = engineInfo["platform"] ?: "unknown"
+        raw.replaceFirst(Regex("^OpenVPN core \\S+ "), "").ifBlank { raw }
+    }
+
     LazyColumn(
         modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 14.dp, bottom = 28.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        contentPadding = PaddingValues(
+            start = Dimens.ScreenPadding,
+            end = Dimens.ScreenPadding,
+            top = 12.dp,
+            bottom = 24.dp,
+        ),
+        verticalArrangement = Arrangement.spacedBy(Dimens.SectionGap),
     ) {
         item {
             ScreenHeader(
+                eyebrow = "Preferences",
                 title = "Settings",
                 subtitle = "Security, network policy, and diagnostics",
             )
         }
 
         item {
+            SectionLabel("Appearance")
             SectionCard {
-                Text("Appearance", style = MaterialTheme.typography.titleMedium)
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    "Use the system theme or keep a consistent look.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                Text("Theme", style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(10.dp))
+                SegmentedOptions(
+                    options = ThemeMode.entries,
+                    selected = settings.themeMode,
+                    label = {
+                        when (it) {
+                            ThemeMode.SYSTEM -> "System"
+                            ThemeMode.LIGHT -> "Light"
+                            ThemeMode.DARK -> "Dark"
+                        }
+                    },
+                    onSelect = onThemeChange,
                 )
-                Spacer(Modifier.height(12.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    ThemeMode.entries.forEach { mode ->
-                        FilterChip(
-                            selected = settings.themeMode == mode,
-                            onClick = { onThemeChange(mode) },
-                            label = {
-                                Text(
-                                    when (mode) {
-                                        ThemeMode.SYSTEM -> "System"
-                                        ThemeMode.LIGHT -> "Light"
-                                        ThemeMode.DARK -> "Dark"
-                                    },
-                                )
-                            },
-                        )
-                    }
-                }
             }
         }
 
         item {
+            SectionLabel("Security")
             SectionCard {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        Icons.Filled.Lock,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(20.dp),
-                    )
-                    Spacer(Modifier.width(10.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("App lock", style = MaterialTheme.typography.titleMedium)
-                        Text(
-                            "Require fingerprint or device credential when opening this app",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    Switch(
-                        checked = settings.biometricLock,
-                        onCheckedChange = onBiometricToggle,
-                    )
-                }
-                Spacer(Modifier.height(12.dp))
+                ToggleRow(
+                    title = "App lock",
+                    subtitle = "Require fingerprint or device credential to open the app.",
+                    checked = settings.biometricLock,
+                    onCheckedChange = onBiometricToggle,
+                )
+                Spacer(Modifier.height(10.dp))
                 DividerLine()
-                Spacer(Modifier.height(12.dp))
-                Text(
-                    "The app lock protects the interface. An active VPN keeps running while the UI is locked. Saved profiles and credentials use AES-256-GCM keys held by Android Keystore and app-private storage excluded from backups.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Spacer(Modifier.height(10.dp))
+                Row(verticalAlignment = Alignment.Top) {
+                    Icon(
+                        imageVector = Icons.Filled.Lock,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier
+                            .padding(top = 2.dp)
+                            .size(16.dp),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = "An active tunnel keeps running while the interface is locked. " +
+                            "Profiles and credentials are stored with Android Keystore encryption.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         }
 
         item {
+            SectionLabel("Network")
             SectionCard {
-                Text("Network policy", style = MaterialTheme.typography.titleMedium)
-                Spacer(Modifier.height(8.dp))
-                SettingsSwitchRow(
-                    title = "Block untunneled address families",
-                    subtitle = "Keep Android's default VPN routing, which blocks a family when the tunnel has no address, route, or DNS for it. Turning this off may allow traffic over the underlying network.",
+                ToggleRow(
+                    title = "Block untunneled traffic",
+                    subtitle = "Keep Android's default VPN routing, which blocks an address family " +
+                        "when the tunnel provides no address, route, or DNS for it.",
                     checked = settings.blockUnusedFamilies,
                     onCheckedChange = onBlockUnusedFamiliesToggle,
                 )
+                Spacer(Modifier.height(8.dp))
                 DividerLine()
-                SettingsSwitchRow(
+                Spacer(Modifier.height(8.dp))
+                ToggleRow(
                     title = "Check public IP after connecting",
-                    subtitle = "Makes one request to api.ipify.org through the active network to show the egress address.",
+                    subtitle = "One request to api.ipify.org through the active network.",
                     checked = settings.autoCheckIp,
                     onCheckedChange = onAutoCheckIpToggle,
                 )
@@ -153,146 +162,148 @@ fun SettingsScreen(
         }
 
         item {
+            SectionLabel("Notifications")
+            SectionCard {
+                if (notificationsGranted) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Notification controls", style = MaterialTheme.typography.titleMedium)
+                            Spacer(Modifier.height(3.dp))
+                            Text(
+                                text = "Connected-state notification and quick actions are enabled.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Spacer(Modifier.width(10.dp))
+                        MetaChip("Enabled", emphasized = true)
+                    }
+                } else {
+                    LinkRow(
+                        title = "Notification controls",
+                        subtitle = "Notifications are off. Enable them to disconnect from the panel.",
+                        trailingLabel = "Enable",
+                        onClick = onOpenNotificationSettings,
+                    )
+                }
+            }
+        }
+
+        item {
+            SectionLabel("System VPN")
+            SectionCard {
+                LinkRow(
+                    title = "Always-on VPN and lockdown",
+                    subtitle = "Managed by Android. This app does not claim a guaranteed kill switch.",
+                    onClick = {
+                        val intent = Intent(Settings.ACTION_VPN_SETTINGS)
+                        runCatching { context.startActivity(intent) }
+                            .onFailure {
+                                runCatching { context.startActivity(Intent(Settings.ACTION_SETTINGS)) }
+                            }
+                    },
+                )
+            }
+        }
+
+        item {
+            SectionLabel("Diagnostics")
             SectionCard {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        Icons.Filled.Info,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(20.dp),
-                    )
-                    Spacer(Modifier.width(10.dp))
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("Notification controls", style = MaterialTheme.typography.titleMedium)
+                        Text("Crypto self-test", style = MaterialTheme.typography.titleMedium)
+                        Spacer(Modifier.height(3.dp))
                         Text(
-                            if (notificationsGranted) "Connected-state notification and quick actions are enabled." else "Notifications are disabled. Turn them on to disconnect from the notification panel.",
+                            text = "Runs the pinned OpenVPN 3 Core mbedTLS self-test.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    Button(
+                        onClick = onRunSelfTest,
+                        enabled = selfTest != SelfTestState.Running,
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                        ),
+                    ) {
+                        Text(
+                            text = when (selfTest) {
+                                SelfTestState.Idle -> "Run"
+                                SelfTestState.Running -> "Running…"
+                                is SelfTestState.Passed -> "Run again"
+                                is SelfTestState.Failed -> "Retry"
+                            },
+                        )
+                    }
+                }
+                when (selfTest) {
+                    SelfTestState.Idle, SelfTestState.Running -> Unit
+                    is SelfTestState.Passed -> {
+                        Spacer(Modifier.height(12.dp))
+                        MessageBanner(message = selfTest.message, isError = false)
+                    }
+                    is SelfTestState.Failed -> {
+                        Spacer(Modifier.height(12.dp))
+                        MessageBanner(message = selfTest.message, isError = true)
+                    }
+                }
+                Spacer(Modifier.height(14.dp))
+                DividerLine()
+                Spacer(Modifier.height(4.dp))
+                KeyValueRow(label = "OpenVPN Core", value = coreVersion)
+                KeyValueRow(label = "Platform", value = platform)
+                KeyValueRow(
+                    label = "Core revision",
+                    value = BuildConfig.OPENVPN_CORE_REVISION.take(12),
+                    monospace = true,
+                )
+                KeyValueRow(
+                    label = "App version",
+                    value = "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
+                    monospace = true,
+                )
+                KeyValueRow(label = "License", value = "AGPL-3.0-only")
+            }
+        }
+
+        item {
+            SectionLabel("About")
+            SectionCard {
+                Row(verticalAlignment = Alignment.Top) {
+                    Box(
+                        modifier = Modifier
+                            .size(30.dp)
+                            .background(MaterialTheme.colorScheme.surfaceContainerHigh, CircleShape),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Info,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(16.dp),
+                        )
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Column {
+                        Text(
+                            text = "OpenVPN Client uses the official OpenVPN 3 Core engine for protocol, " +
+                                "TLS, certificate validation, and packet processing.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            text = "Profiles, credentials, and logs never leave the device. Logs are " +
+                                "kept in memory and sanitized before display.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
-                if (!notificationsGranted) {
-                    Spacer(Modifier.height(10.dp))
-                    OutlinedButton(onClick = onOpenNotificationSettings) {
-                        Text("Open notification settings")
-                    }
-                }
             }
         }
-
-        item {
-            SectionCard {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        Icons.Filled.Info,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(20.dp),
-                    )
-                    Spacer(Modifier.width(10.dp))
-                    Text("Kill switch and always-on VPN", style = MaterialTheme.typography.titleMedium)
-                }
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    "Android's Always-on VPN and Lockdown features are controlled by the system. This app does not claim to provide a guaranteed kill switch. Configure Always-on VPN in system settings if you need system-level lockdown.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.height(10.dp))
-                OutlinedButton(onClick = {
-                    val intent = Intent(Settings.ACTION_VPN_SETTINGS)
-                    runCatching { context.startActivity(intent) }
-                        .onFailure {
-                            runCatching { context.startActivity(Intent(Settings.ACTION_SETTINGS)) }
-                        }
-                }) {
-                    Text("Open system VPN settings")
-                }
-            }
-        }
-
-        item {
-            SectionCard {
-                Text("Engine diagnostics", style = MaterialTheme.typography.titleMedium)
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    "Verified by the pinned native OpenVPN 3 Core library.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.height(12.dp))
-                when (selfTest) {
-                    SelfTestState.Idle -> Button(onClick = onRunSelfTest) {
-                        Text("Run crypto self-test")
-                    }
-                    SelfTestState.Running -> Button(onClick = {}, enabled = false) {
-                        Text("Running…")
-                    }
-                    is SelfTestState.Passed -> {
-                        MessageBanner(message = selfTest.message, isError = false)
-                        Spacer(Modifier.height(8.dp))
-                        OutlinedButton(onClick = onRunSelfTest) { Text("Run again") }
-                    }
-                    is SelfTestState.Failed -> {
-                        MessageBanner(message = selfTest.message, isError = true)
-                        Spacer(Modifier.height(8.dp))
-                        OutlinedButton(onClick = onRunSelfTest) { Text("Try again") }
-                    }
-                }
-                Spacer(Modifier.height(14.dp))
-                DividerLine()
-                Spacer(Modifier.height(6.dp))
-                InfoRow("OpenVPN Core", engineInfo["coreVersion"] ?: "unknown")
-                InfoRow("Platform", engineInfo["platform"] ?: "unknown")
-                InfoRow("Core revision", BuildConfig.OPENVPN_CORE_REVISION.take(12))
-                InfoRow("App version", "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
-                InfoRow("License", "AGPL-3.0-only")
-            }
-        }
-
-        item {
-            SectionCard {
-                Text("About this build", style = MaterialTheme.typography.titleMedium)
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    "OpenVPN Client uses the official OpenVPN 3 Core engine for all protocol, TLS, certificate validation, and packet processing. No cryptography or VPN protocol code is implemented by this app.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    "Profiles, credentials, and logs are never sent to a backend. Logs are kept in memory and sanitized before display.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun SettingsSwitchRow(
-    title: String,
-    subtitle: String,
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.bodyLarge)
-            Spacer(Modifier.height(3.dp))
-            Text(
-                subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        Spacer(Modifier.width(12.dp))
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
 }
