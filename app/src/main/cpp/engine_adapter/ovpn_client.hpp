@@ -134,6 +134,55 @@ class OvpnClient : public openvpn::ClientAPI::OpenVPNClient {
     void external_pki_cert_request(openvpn::ClientAPI::ExternalPKICertRequest &req) override;
     void external_pki_sign_request(openvpn::ClientAPI::ExternalPKISignRequest &req) override;
 
+    // OpenVPNClient already derives from TunBuilderBase, so the core calls
+    // these virtuals on OvpnClient. Delegate to the AndroidTunBuilder that
+    // collects the configuration; otherwise Core would hit the base-class
+    // defaults and fail with "tun_builder_new failed".
+    bool tun_builder_new() override { return tun_builder_.tun_builder_new(); }
+    bool tun_builder_set_layer(int layer) override { return tun_builder_.tun_builder_set_layer(layer); }
+    bool tun_builder_set_remote_address(const std::string &address, bool ipv6) override
+    { return tun_builder_.tun_builder_set_remote_address(address, ipv6); }
+    bool tun_builder_add_address(const std::string &address, int prefix_length,
+                                 const std::string &gateway, bool ipv6, bool net30) override
+    { return tun_builder_.tun_builder_add_address(address, prefix_length, gateway, ipv6, net30); }
+    bool tun_builder_set_route_metric_default(int metric) override
+    { return tun_builder_.tun_builder_set_route_metric_default(metric); }
+    bool tun_builder_reroute_gw(bool ipv4, bool ipv6, unsigned int flags) override
+    { return tun_builder_.tun_builder_reroute_gw(ipv4, ipv6, flags); }
+    bool tun_builder_add_route(const std::string &address, int prefix_length, int metric, bool ipv6) override
+    { return tun_builder_.tun_builder_add_route(address, prefix_length, metric, ipv6); }
+    bool tun_builder_exclude_route(const std::string &address, int prefix_length, int metric, bool ipv6) override
+    { return tun_builder_.tun_builder_exclude_route(address, prefix_length, metric, ipv6); }
+    bool tun_builder_add_dns_options(const openvpn::DnsOptions &dns) override
+    { return tun_builder_.tun_builder_add_dns_options(dns); }
+    bool tun_builder_add_dns_server(const std::string &address, bool ipv6) override
+    { return tun_builder_.tun_builder_add_dns_server(address, ipv6); }
+    bool tun_builder_add_search_domain(const std::string &domain) override
+    { return tun_builder_.tun_builder_add_search_domain(domain); }
+    bool tun_builder_set_mtu(int mtu) override { return tun_builder_.tun_builder_set_mtu(mtu); }
+    bool tun_builder_set_session_name(const std::string &name) override
+    { return tun_builder_.tun_builder_set_session_name(name); }
+    bool tun_builder_add_proxy_bypass(const std::string &host) override
+    { return tun_builder_.tun_builder_add_proxy_bypass(host); }
+    bool tun_builder_set_proxy_auto_config_url(const std::string &url) override
+    { return tun_builder_.tun_builder_set_proxy_auto_config_url(url); }
+    bool tun_builder_set_proxy_http(const std::string &host, int port) override
+    { return tun_builder_.tun_builder_set_proxy_http(host, port); }
+    bool tun_builder_set_proxy_https(const std::string &host, int port) override
+    { return tun_builder_.tun_builder_set_proxy_https(host, port); }
+    bool tun_builder_add_wins_server(const std::string &address) override
+    { return tun_builder_.tun_builder_add_wins_server(address); }
+    bool tun_builder_set_allow_family(int af, bool allow) override
+    { return tun_builder_.tun_builder_set_allow_family(af, allow); }
+    bool tun_builder_set_allow_local_dns(bool allow) override
+    { return tun_builder_.tun_builder_set_allow_local_dns(allow); }
+    bool tun_builder_set_adapter_domain_suffix(const std::string &name) override
+    { return tun_builder_.tun_builder_set_adapter_domain_suffix(name); }
+    int tun_builder_establish() override { return tun_builder_.tun_builder_establish(); }
+    bool tun_builder_persist() override { return tun_builder_.tun_builder_persist(); }
+    void tun_builder_establish_lite() override { tun_builder_.tun_builder_establish_lite(); }
+    void tun_builder_teardown(bool disconnect) override { tun_builder_.tun_builder_teardown(disconnect); }
+
     void set_block_unused_families(bool block)
     {
         tun_builder_.set_block_unused_families(block);
