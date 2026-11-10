@@ -94,7 +94,8 @@ class VpnTileService : TileService() {
     }
 
     private fun updateTile(snapshot: VpnSnapshot) {
-        val tile = qsTile ?: run {
+        val tile = qsTile
+        if (tile == null) {
             // The tile is gone; force a render when SystemUI hands it back.
             lastRendered = null
             return
