@@ -319,7 +319,7 @@ Verification performed on this branch:
   :app:assembleDebugAndroidTest
 ```
 
-Result: **pass**. 94 unit tests in 14 suites, 0 failures; lint 0 errors; debug
+Result: **pass**. 103 unit tests in 15 suites, 0 failures; lint 0 errors; debug
 APK and instrumentation-test APK built. The native target was also built
 explicitly with `:app:externalNativeBuildDebug` for `arm64-v8a` and `x86_64`,
 and the generated header was inspected to confirm the gated advertisement:
@@ -380,7 +380,7 @@ Verification performed on this branch:
   :app:assembleDebugAndroidTest
 ```
 
-Result: **pass**. 94 unit tests in 14 suites, 0 failures; lint 0 errors; debug
+Result: **pass**. 103 unit tests in 15 suites, 0 failures; lint 0 errors; debug
 APK and instrumentation-test APK built. `:app:externalNativeBuildDebug` built
 `arm64-v8a` and `x86_64`. New coverage: `NativeEngineStatsTest` pins the
 download/upload direction (including the transport fallback and partial TUN
@@ -402,6 +402,65 @@ Residual risk: a paused session tears down the old TUN before the resumed
 client establishes a new one. The app keeps `tunPersist = false` by design, so
 this is a short gap during reconnect rather than a persistent tunnel; see
 ADR-007.
+
+## Security hardening pass (2026-11-10)
+
+Follow-up audit against the common VPN-client failure classes (leaks, server
+impersonation, platform lifecycle, MTU, supply chain) produced these changes:
+
+- **Always-on VPN start.** Android starts a VpnService with
+  `VpnService.SERVICE_INTERFACE` for Always-on/lockdown, not the app's own
+  `ACTION_CONNECT`. `MyVpnService` now refreshes the profile index, uses the
+  persisted selected profile, and connects with stored credentials. Without this
+  the system-level kill switch could never bring the tunnel up.
+- **Server certificate usage.** `ProfileImportPolicy.withServerCertificateUsage`
+  appends `remote-cert-tls server` at import and connect when a profile has a CA
+  but no explicit `remote-cert-*`, `tls-remote`, or `peer-fingerprint` policy.
+  This prevents a client certificate signed by the same CA from being accepted
+  as the server. The change is logged and idempotent.
+- **Metered network inheritance.** `VpnService.Builder.setMetered()` follows the
+  underlying network on Android 10+ so data-saver/background restrictions are
+  not bypassed by an always-unmetered VPN.
+- **16 KB page-size alignment.** The native shared library is linked with
+  `-Wl,-z,max-page-size=16384`; the built `arm64-v8a` library reports `LOAD`
+  alignment `0x4000`.
+- **MTU diagnostics.** A `UDP send exception: send: Message too long` engine line
+  now produces a Diagnostics warning suggesting a lower `tun-mtu`.
+- **Clearer failures.** `CERT_VERIFY_FAIL`, proxy credential failures, and
+  `Network Unavailable` session endings now have actionable messages; the raw
+  engine detail is still logged.
+
+Verification:
+
+```bash
+./gradlew --no-daemon \
+  :app:testDebugUnitTest \
+  :app:lintDebug \
+  :app:assembleDebug \
+  :app:assembleDebugAndroidTest
+```
+
+Result: **pass**. 103 unit tests in 15 suites, 0 failures; lint 0 errors; debug
+and instrumentation-test APKs built. `:app:externalNativeBuildDebug` built
+`arm64-v8a` and `x86_64`; `readelf -l` on the arm64 library shows `LOAD`
+alignment `0x4000`.
+
+Manual checks still required:
+
+- [ ] Enable Android Always-on VPN for this app, force-stop it, and confirm the
+      tunnel comes back with the selected profile.
+- [ ] Enable lockdown, disable all networks, and confirm protected traffic is
+      blocked.
+- [ ] Connect to a server whose certificate is signed by the profile CA but is a
+      client certificate; confirm `CERT_VERIFY_FAIL` and no connection.
+- [ ] Connect on a metered network and confirm the VPN is reported as metered.
+- [ ] Install and connect on a 16 KB page-size Android 15 device/emulator.
+- [ ] Reproduce an MTU black hole and confirm the new Diagnostics hint appears.
+
+The remaining gaps (DNS leak fail-closed mode, configurable MTU, strict
+certificate validation, split tunneling, captive portals, process-death/backoff,
+supply-chain monitoring, privacy/store compliance, leak-test matrix) are tracked
+in `docs/security-readiness.md` and issues #8–#21.
 
 ## What is verified vs. not verified
 

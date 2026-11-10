@@ -205,6 +205,10 @@ Compatibility settings keep older provider profiles connectable with the pinned
   that gates the advertisement on
   `SSLLib::SSLAPI::support_key_material_export()`, mirroring the existing
   `IV_PROTO_TLS_KEY_EXPORT` guard. See ADR-006.
+- For CA-based profiles that do not already specify `remote-cert-*`,
+  `tls-remote`, or `peer-fingerprint`, the app appends
+  `remote-cert-tls server` at import and connect time. This prevents a client
+  certificate signed by the same CA from being accepted as the server.
 
 ### Events
 

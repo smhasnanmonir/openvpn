@@ -24,6 +24,19 @@ All notable changes to this project are documented here.
   TUN counters use the tunnel device's direction. Download now maps to
   `TUN_BYTES_OUT` and upload to `TUN_BYTES_IN`, with the transport counters kept
   in the socket's direction for the fallback.
+- Android Always-on VPN / lockdown starts the service with
+  `VpnService.SERVICE_INTERFACE`; the service now connects the persisted
+  selected profile with stored credentials instead of ignoring the start.
+- CA-based profiles that did not explicitly constrain server-certificate usage
+  now get `remote-cert-tls server` at import and connect time, preventing a
+  client certificate from being accepted as the server.
+- The VPN network now inherits the underlying network's metered state on
+  Android 10+, so data-saver/background restrictions are not bypassed.
+- The native library is linked with 16 KB page-size alignment for Android 15+
+  devices.
+- `UDP send exception: send: Message too long` now produces a Diagnostics hint
+  about lowering `tun-mtu`; certificate-verification, proxy-credential and
+  network-unavailable failures have actionable messages.
 
 ## [1.2.0] - 2026-11-10
 

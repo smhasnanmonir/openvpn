@@ -20,8 +20,19 @@ private, and avoid overstating what Android and the server guarantee.
   profiles, auth payloads, and session tokens are never intentionally logged.
 - **Transport sockets.** OpenVPN transport fds are passed to
   `VpnService.protect()` so they do not route into the VPN's own TUN.
+- **Server certificate usage.** For CA-based profiles that do not already
+  specify a server-certificate policy, the app appends `remote-cert-tls server`
+  at import and connect. This prevents a client certificate signed by the same
+  CA from being accepted as the server (see `ProfileImportPolicy`).
+- **System-level kill switch support.** The service handles Android's
+  Always-on/lockdown start action (`VpnService.SERVICE_INTERFACE`) and connects
+  the persisted selected profile with stored credentials.
 - **UI lock.** Optional fingerprint/strong-biometric gate implemented with
   `BiometricPrompt`. The gate protects the UI; it does not stop an active VPN.
+
+The full item-by-item audit against the product-readiness review, including
+known gaps and tracking issues, is in
+[`docs/security-readiness.md`](security-readiness.md).
 
 ## What the app does not protect against
 
@@ -54,6 +65,10 @@ The app:
 - does not copy the CA out of the profile into logs or UI state;
 - rejects profiles that explicitly request an external PKI certificate/key
   provider instead of silently bypassing them;
+- appends `remote-cert-tls server` for CA-based profiles that do not already
+  specify an explicit server-certificate policy (`remote-cert-*`, `tls-remote`,
+  or `peer-fingerprint`), both at import and connect time; a server certificate
+  without the serverAuth extended key usage now fails verification by design;
 - for certificate-less username/password profiles only, adds Core's
   `setenv CLIENT_CERT 0` directive (no client certificate is sent); the server
   certificate, CA, `remote-cert-tls server`, and `verify-x509-name` checks are
