@@ -54,6 +54,21 @@ class ProfileStore(
         check(temp.renameTo(target)) { "Could not replace profile file" }
     }
 
+    /**
+     * Decrypts and decodes exactly one stored profile. Returns null when the id
+     * has no blob, the blob cannot be decoded, or its payload belongs to a
+     * different id. Read paths that need a single profile body use this instead
+     * of [loadAll] so callers never hold every decrypted config at once.
+     */
+    fun load(id: String): StoredProfile? {
+        val file = File(directory, "$id$EXTENSION")
+        if (!file.exists()) return null
+        return runCatching {
+            val plain = secretBox.decrypt(file.readBytes())
+            decode(plain.toString(Charsets.UTF_8))
+        }.getOrNull()?.takeIf { it.summary.id == id }
+    }
+
     fun delete(id: String) {
         val file = File(directory, "$id$EXTENSION")
         if (file.exists() && !file.delete()) {

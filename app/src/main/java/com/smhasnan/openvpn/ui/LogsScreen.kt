@@ -41,6 +41,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.smhasnan.openvpn.ui.components.EmptyState
 import com.smhasnan.openvpn.ui.components.FilterPillRow
 import com.smhasnan.openvpn.ui.components.ProfileAvatar
@@ -56,18 +57,20 @@ import com.smhasnan.openvpn.vpn.LogLevel
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.flow.StateFlow
 
 @Composable
 fun LogsScreen(
-    logs: List<LogEntry>,
+    logs: StateFlow<List<LogEntry>>,
     onClear: () -> Unit,
     onMessage: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
+    val entries by logs.collectAsStateWithLifecycle()
     var filter by remember { mutableStateOf<LogLevel?>(null) }
-    val filtered = remember(logs, filter) {
-        if (filter == null) logs else logs.filter { it.level == filter }
+    val filtered = remember(entries, filter) {
+        if (filter == null) entries else entries.filter { it.level == filter }
     }
     val listState = rememberLazyListState()
     val timeFormat = remember { SimpleDateFormat("HH:mm:ss", Locale.US) }
@@ -89,7 +92,7 @@ fun LogsScreen(
             title = "Diagnostics",
             subtitle = "Sanitized engine and service events",
             action = {
-                if (logs.isNotEmpty()) {
+                if (entries.isNotEmpty()) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         TextButton(onClick = {
                             copyLogs(context, filtered, timeFormat)
@@ -121,7 +124,7 @@ fun LogsScreen(
             onSelect = { filter = it },
         )
         Spacer(Modifier.height(14.dp))
-        if (logs.isEmpty()) {
+        if (entries.isEmpty()) {
             SectionCard(modifier = Modifier.fillMaxWidth()) {
                 EmptyState(
                     icon = { ProfileAvatar(emoji = "📋", size = 52.dp) },

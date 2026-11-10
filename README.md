@@ -43,9 +43,19 @@ protocol or cryptography.
   available, otherwise transport byte counters) and an engine-derived
   connection timer.
 - **Public IP check** through the active network (not presented as a complete
-  leak test).
-- **Profile management**: rename display name only, emoji avatar selection,
-  delete profile + credentials, duplicate detection, search.
+  leak test), with explicit loading, failure/retry and result states, and the
+  egress path and check time shown with the address.
+- **Profile switching from Home**: the selected-profile row in the connection
+  hero opens a switcher for every saved profile, and linking to profile
+  management. Selection is blocked while a tunnel is active.
+- **Profile management**: rename display name only, built-in or custom emoji
+  avatar selection (any 1–2 emoji, grapheme-validated), delete profile +
+  credentials, duplicate detection, search.
+- **Battery- and memory-conscious runtime**: diagnostics and state are observed
+  only where they render, traffic polling follows connection and screen state,
+  notification/tile updates are content-deduplicated, and decrypted profile
+  bodies are not kept resident. The audit is documented in
+  [docs/performance.md](docs/performance.md).
 - **Sanitized diagnostics** with filtering, copy, and clear. Passwords, keys,
   profile contents, and auth payloads are never logged.
 - **Validation / success / error / empty states** across import, connection,
@@ -57,7 +67,8 @@ protocol or cryptography.
 Captured from an Android 16 (API 36) x86_64 emulator, debug build, with the
 current UI. The certificate-less username/password profile shown is a provider
 export; the real tunnel was verified separately on an earlier emulator run (see
-`docs/testing.md`).
+`docs/testing.md`). The captures predate the 1.2.0 Home network-card redesign
+and profile switcher described above.
 
 | Home | Profiles |
 |---|---|
@@ -98,6 +109,7 @@ More detail:
 - [OpenVPN Core integration](docs/openvpn-core-integration.md)
 - [Security and threat model](docs/security.md)
 - [Profile import](docs/profile-import.md)
+- [Performance and power](docs/performance.md)
 - [Testing](docs/testing.md)
 - [Release process](docs/release.md)
 

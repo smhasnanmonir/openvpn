@@ -1,6 +1,9 @@
 package com.smhasnan.openvpn.config
 
+import androidx.compose.runtime.Immutable
+
 /** Non-secret metadata obtained by OpenVPN 3 Core's eval_config(). */
+@Immutable
 data class ProfileMetadata(
     val serverHost: String? = null,
     val serverPort: String? = null,
@@ -33,6 +36,7 @@ data class ProfileMetadata(
         get() = protocol?.takeIf { it.isNotBlank() }?.uppercase()
 }
 
+@Immutable
 data class ProfileSummary(
     val id: String,
     val name: String,
@@ -46,11 +50,13 @@ data class ProfileSummary(
         get() = !metadata.autologin || metadata.staticChallenge != null || metadata.privateKeyPasswordRequired
 }
 
+@Immutable
 data class StoredProfile(
     val summary: ProfileSummary,
     val config: String,
 )
 
+@Immutable
 data class ProfileCredentials(
     val username: String? = null,
     val password: String? = null,

@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -25,6 +26,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -348,46 +350,108 @@ fun EmojiPickerDialog(
     onDismiss: () -> Unit,
     onPick: (String) -> Unit,
 ) {
+    var custom by remember { mutableStateOf("") }
+    val customValue = custom.trim()
+    val customValid = EmojiCatalog.isValidCustom(customValue)
+    val customInvalid = custom.isNotEmpty() && !customValid
+
     AlertDialog(
         onDismissRequest = onDismiss,
         shape = DialogShape,
         containerColor = MaterialTheme.colorScheme.surface,
         title = { Text("Choose an icon") },
         text = {
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(6),
-                modifier = Modifier.height(280.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                items(EmojiCatalog.choices) { emoji ->
-                    val selected = emoji == current
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(6),
+                    modifier = Modifier.height(220.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    items(EmojiCatalog.choices) { emoji ->
+                        val selected = emoji == current
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .aspectRatio(1f)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(
+                                    if (selected) MaterialTheme.colorScheme.primaryContainer
+                                    else MaterialTheme.colorScheme.surfaceContainer,
+                                )
+                                .border(
+                                    if (selected) 2.dp else 0.dp,
+                                    MaterialTheme.colorScheme.primary,
+                                    RoundedCornerShape(12.dp),
+                                )
+                                .clickable { onPick(emoji) },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = emoji,
+                                fontSize = 24.sp,
+                            )
+                        }
+                    }
+                }
+                HorizontalDivider()
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        text = "Custom icon",
+                        style = MaterialTheme.typography.titleSmall,
+                        modifier = Modifier.weight(1f),
+                    )
                     Box(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .aspectRatio(1f)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(
-                                if (selected) MaterialTheme.colorScheme.primaryContainer
-                                else MaterialTheme.colorScheme.surfaceContainer,
-                            )
+                            .size(52.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(MaterialTheme.colorScheme.surfaceContainer)
                             .border(
-                                if (selected) 2.dp else 0.dp,
-                                MaterialTheme.colorScheme.primary,
-                                RoundedCornerShape(12.dp),
-                            )
-                            .clickable { onPick(emoji) },
+                                width = 1.dp,
+                                color = if (customInvalid) MaterialTheme.colorScheme.error
+                                else MaterialTheme.colorScheme.outlineVariant,
+                                shape = RoundedCornerShape(14.dp),
+                            ),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Text(
-                            text = emoji,
-                            fontSize = 24.sp,
-                        )
+                        if (customValid) {
+                            Text(text = customValue, fontSize = 18.sp, maxLines = 1)
+                        } else {
+                            Text(
+                                text = "?",
+                                fontSize = 18.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
+                }
+                OutlinedTextField(
+                    value = custom,
+                    onValueChange = { custom = it },
+                    placeholder = { Text("Paste or type any emoji") },
+                    singleLine = true,
+                    isError = customInvalid,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                if (customInvalid) {
+                    Text(
+                        text = "Use 1–2 emoji.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
                 }
             }
         },
-        confirmButton = {},
+        confirmButton = {
+            Button(
+                onClick = { onPick(EmojiCatalog.normalized(custom)) },
+                enabled = customValid,
+                shape = DialogActionShape,
+            ) { Text("Use") }
+        },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }

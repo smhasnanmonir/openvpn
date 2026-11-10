@@ -12,12 +12,41 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.smhasnan.openvpn.MainActivity
 import com.smhasnan.openvpn.R
+import java.util.concurrent.ConcurrentHashMap
 
 object VpnNotification {
     const val CHANNEL_ID = "vpn_status"
     const val ERROR_CHANNEL_ID = "vpn_errors"
     const val FOREGROUND_ID = 1001
     private const val ERROR_ID = 1002
+
+    /**
+     * Everything that changes what the foreground notification renders. Traffic
+     * stats and connection details change on every poll, but neither is part of
+     * the notification body (except the protocol on CONNECTED), so neither
+     * belongs here: an update whose signature is unchanged must not cross into
+     * the system NotificationManager.
+     */
+    private data class ContentSignature(
+        val state: VpnState,
+        val profileName: String?,
+        val errorText: String?,
+        val protocol: String?,
+        val disconnectAction: Boolean,
+        val reconnectAction: Boolean,
+        val chronometer: Boolean,
+    )
+
+    /**
+     * PendingIntents here have immutable content, so one instance per process is
+     * enough. Rebuilding them on every notification build would allocate across
+     * the Binder boundary while the tunnel is up.
+     *
+     * Keys are the request codes used by [build], [showError] and the action
+     * intents; they are intentionally unique across activity and service types.
+     */
+    private val intentCache = ConcurrentHashMap<Int, PendingIntent>()
+    private var lastSignature: ContentSignature? = null
 
     fun createChannels(context: Context) {
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -98,14 +127,26 @@ object VpnNotification {
         return builder.build()
     }
 
+    /**
+     * Posts the foreground notification only when its rendered content changed.
+     * Returns true when a notification was posted so callers can refresh other
+     * surfaces (the Quick Settings tile) only when something visible changed.
+     */
     @SuppressLint("MissingPermission")
-    fun update(context: Context, snapshot: VpnSnapshot) {
+    @Synchronized
+    fun update(context: Context, snapshot: VpnSnapshot): Boolean {
         // Notification permission is requested by the UI. Even when it is denied,
         // startForeground() is still required and Android shows the service in the
         // task manager, so this call is intentionally not gated on the permission.
-        runCatching {
-            NotificationManagerCompat.from(context).notify(FOREGROUND_ID, build(context, snapshot))
-        }
+        val signature = signatureOf(snapshot)
+        if (signature == lastSignature) return false
+        val notification = runCatching { build(context, snapshot) }.getOrNull() ?: return false
+        return runCatching {
+            NotificationManagerCompat.from(context).notify(FOREGROUND_ID, notification)
+            // Cache only after a successful post so a failed update is retried.
+            lastSignature = signature
+            true
+        }.getOrDefault(false)
     }
 
     @SuppressLint("MissingPermission")
@@ -124,8 +165,27 @@ object VpnNotification {
         }
     }
 
+    @Synchronized
     fun cancelForeground(context: Context) {
+        // A new foreground session must render its first update even when its
+        // content happens to match the notification that was just removed.
+        lastSignature = null
         runCatching { NotificationManagerCompat.from(context).cancel(FOREGROUND_ID) }
+    }
+
+    private fun signatureOf(snapshot: VpnSnapshot): ContentSignature {
+        val state = snapshot.state
+        return ContentSignature(
+            state = state,
+            profileName = snapshot.profileName,
+            // Only the ERROR body renders arbitrary text; other states use fixed strings.
+            errorText = if (state == VpnState.ERROR) snapshot.error?.take(140) else null,
+            // The protocol only appears in the CONNECTED body.
+            protocol = if (state == VpnState.CONNECTED) snapshot.details.protocol else null,
+            disconnectAction = state.canDisconnect,
+            reconnectAction = state == VpnState.CONNECTED || state == VpnState.RECONNECTING,
+            chronometer = state == VpnState.CONNECTED && snapshot.connectedAtMillis != null,
+        )
     }
 
     private fun stateTitle(state: VpnState): String = when (state) {
@@ -139,22 +199,19 @@ object VpnNotification {
         VpnState.DISCONNECTED -> "VPN disconnected"
     }
 
-    private fun openAppIntent(context: Context, requestCode: Int = 0): PendingIntent {
-        val intent = Intent(context, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+    private fun openAppIntent(context: Context, requestCode: Int = 0): PendingIntent =
+        intentCache.computeIfAbsent(requestCode) {
+            val intent = Intent(context, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            }
+            PendingIntent.getActivity(context, requestCode, intent, pendingIntentFlags())
         }
-        return PendingIntent.getActivity(
-            context,
-            requestCode,
-            intent,
-            pendingIntentFlags(),
-        )
-    }
 
-    private fun serviceIntent(context: Context, action: String, requestCode: Int): PendingIntent {
-        val intent = Intent(context, MyVpnService::class.java).setAction(action)
-        return PendingIntent.getService(context, requestCode, intent, pendingIntentFlags())
-    }
+    private fun serviceIntent(context: Context, action: String, requestCode: Int): PendingIntent =
+        intentCache.computeIfAbsent(requestCode) {
+            val intent = Intent(context, MyVpnService::class.java).setAction(action)
+            PendingIntent.getService(context, requestCode, intent, pendingIntentFlags())
+        }
 
     private fun pendingIntentFlags(): Int =
         PendingIntent.FLAG_UPDATE_CURRENT or

@@ -68,8 +68,13 @@ the foreground notification, and stops the service. `onRevoke()` and
 - Native Core `connect()`: owned worker thread created by `JniSession`.
 - JNI callbacks: attach to the JVM on the native worker and use a global ref to
   `NativeCallbacks`.
-- Stats polling: service `Dispatchers.IO` coroutine, 1.5 s interval.
-- `VpnController`: StateFlow updates are thread-safe and observed on main.
+- Stats polling: service coroutine, only while `CONNECTED`/`RECONNECTING`,
+  every 1.5 s while the screen is interactive and every 10 s while it is off
+  (`StatsRefreshPolicy`). Connection details are refreshed on connect and on
+  real network changes, not on every poll.
+- `VpnController`: StateFlow updates are thread-safe and observed on main. Log
+  lines are buffered and published as one coalesced snapshot per 250 ms; errors
+  publish immediately.
 
 ## State machine
 
@@ -132,6 +137,10 @@ names. Writes go to a temp file, fsync, then rename.
 
 Backups are disabled in the manifest and a `data_extraction_rules.xml` excludes
 all domains from cloud backup and device transfer.
+
+The repository keeps only the profile summary index resident plus at most one
+decrypted profile body (the most recently used); other bodies are decrypted
+from their encrypted file on demand (`ProfileStore.load(id)`).
 
 ## SOLID / DRY choices
 

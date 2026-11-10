@@ -2,12 +2,14 @@ package com.smhasnan.openvpn.settings
 
 import android.content.Context
 import android.content.SharedPreferences
+import androidx.compose.runtime.Immutable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 enum class ThemeMode { SYSTEM, LIGHT, DARK }
 
+@Immutable
 data class AppSettings(
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
     val biometricLock: Boolean = false,

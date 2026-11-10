@@ -1,10 +1,18 @@
 package com.smhasnan.openvpn.vpn
 
 import com.smhasnan.openvpn.util.LogSanitizer
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import java.util.Collections
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
 /**
@@ -14,6 +22,19 @@ import java.util.concurrent.atomic.AtomicLong
 object VpnController {
     private const val MAX_LOG_LINES = 500
 
+    /**
+     * Native callbacks append diagnostics from arbitrary threads and often in
+     * bursts (a connect attempt easily emits hundreds of core lines). Appending
+     * a line therefore only touches a small synchronized ring buffer; a single
+     * lightweight coroutine publishes one coalesced immutable snapshot per
+     * interval. This keeps the observability semantics (ordering, 500-line cap,
+     * consecutive-duplicate suppression) while avoiding a full list copy per
+     * line. Errors are published synchronously because they are rare and the UI
+     * needs the failure reason immediately.
+     */
+    private const val LOG_PUBLISH_INTERVAL_MS = 250L
+    private const val DUPLICATE_WINDOW_MS = 1_000L
+
     private val _snapshot = MutableStateFlow(VpnSnapshot())
     val snapshot: StateFlow<VpnSnapshot> = _snapshot.asStateFlow()
 
@@ -21,6 +42,20 @@ object VpnController {
     val logs: StateFlow<List<LogEntry>> = _logs.asStateFlow()
 
     private val sequence = AtomicLong(0L)
+
+    /**
+     * Guards [pendingLines], [lastPublishedEntry] and all writes to [_logs].
+     * A plain lock (not a coroutine Mutex) is required because native engine
+     * callbacks append from non-coroutine threads.
+     */
+    private val logLock = Any()
+    private val pendingLines = ArrayDeque<LogEntry>()
+    private var lastPublishedEntry: LogEntry? = null
+
+    /** Single conflated "there are buffered lines" signal. */
+    private val publishSignal = Channel<Unit>(Channel.CONFLATED)
+    private val publishScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val publisherStarted = AtomicBoolean(false)
 
     fun prepare(profileId: String, name: String, emoji: String) {
         _snapshot.value = VpnSnapshot(
@@ -134,25 +169,73 @@ object VpnController {
 
     fun reset() {
         _snapshot.value = VpnSnapshot()
+        clearLogs()
     }
 
     fun appendLog(level: LogLevel, rawLine: String) {
-        val line = LogSanitizer.sanitize(rawLine)
-        if (line.isBlank()) return
-        _logs.update { existing ->
-            if (existing.lastOrNull()?.message == line &&
-                System.currentTimeMillis() - (existing.lastOrNull()?.timestampMillis ?: 0L) < 1_000L
-            ) {
-                existing
-            } else {
-                (existing + LogEntry(System.currentTimeMillis(), level, line)).takeLast(MAX_LOG_LINES)
+        val message = LogSanitizer.sanitize(rawLine)
+        if (message.isBlank()) return
+        val entry = LogEntry(System.currentTimeMillis(), level, message)
+        synchronized(logLock) {
+            if (isConsecutiveDuplicateLocked(message, entry.timestampMillis)) return
+            pendingLines.addLast(entry)
+            while (pendingLines.size > MAX_LOG_LINES) {
+                pendingLines.removeFirst()
+            }
+            if (level == LogLevel.ERROR) {
+                // Failure reasons must be visible immediately; error lines are
+                // rare compared with the engine's informational bursts.
+                publishLocked()
+                return
             }
         }
+        ensurePublisher()
+        publishSignal.trySend(Unit)
     }
 
     fun clearLogs() {
-        _logs.value = emptyList()
+        synchronized(logLock) {
+            pendingLines.clear()
+            lastPublishedEntry = null
+            _logs.value = emptyList()
+        }
     }
 
     fun nextSequence(): Long = sequence.incrementAndGet()
+
+    private fun isConsecutiveDuplicateLocked(message: String, timestampMillis: Long): Boolean {
+        val previous = pendingLines.lastOrNull() ?: lastPublishedEntry ?: return false
+        return previous.message == message &&
+            timestampMillis - previous.timestampMillis < DUPLICATE_WINDOW_MS
+    }
+
+    /** Merges buffered lines into the published snapshot. Caller holds [logLock]. */
+    private fun publishLocked() {
+        if (pendingLines.isEmpty()) return
+        val existing = _logs.value
+        val pendingCount = pendingLines.size
+        // Only the part of the previous snapshot that still fits is retained;
+        // untouched entries are not copied when a burst fills the buffer.
+        val retainedCount = (MAX_LOG_LINES - pendingCount).coerceAtLeast(0)
+        val firstRetained = (existing.size - retainedCount).coerceAtLeast(0)
+        val merged = ArrayList<LogEntry>(existing.size - firstRetained + pendingCount)
+        for (index in firstRetained until existing.size) {
+            merged.add(existing[index])
+        }
+        merged.addAll(pendingLines)
+        pendingLines.clear()
+        _logs.value = Collections.unmodifiableList(merged)
+        lastPublishedEntry = merged[merged.size - 1]
+    }
+
+    private fun ensurePublisher() {
+        if (!publisherStarted.compareAndSet(false, true)) return
+        publishScope.launch {
+            while (true) {
+                publishSignal.receive()
+                delay(LOG_PUBLISH_INTERVAL_MS)
+                synchronized(logLock) { publishLocked() }
+            }
+        }
+    }
 }

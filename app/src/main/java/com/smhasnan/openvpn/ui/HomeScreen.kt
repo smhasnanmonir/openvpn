@@ -2,6 +2,7 @@ package com.smhasnan.openvpn.ui
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,7 +19,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -32,6 +35,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -39,18 +43,24 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import com.smhasnan.openvpn.config.ProfileSummary
 import com.smhasnan.openvpn.ui.components.BrandMark
 import com.smhasnan.openvpn.ui.components.DividerLine
 import com.smhasnan.openvpn.ui.components.EmptyState
 import com.smhasnan.openvpn.ui.components.KeyValueRow
 import com.smhasnan.openvpn.ui.components.MessageBanner
+import com.smhasnan.openvpn.ui.components.MetaChip
+import com.smhasnan.openvpn.ui.components.ProfileSwitcherSheet
 import com.smhasnan.openvpn.ui.components.ScreenHeader
 import com.smhasnan.openvpn.ui.components.SectionCard
 import com.smhasnan.openvpn.ui.components.SectionLabel
@@ -69,18 +79,21 @@ import com.smhasnan.openvpn.util.DurationFormat
 import com.smhasnan.openvpn.vpn.PublicIpState
 import com.smhasnan.openvpn.vpn.VpnSnapshot
 import com.smhasnan.openvpn.vpn.VpnState
+import java.util.Date
 import kotlinx.coroutines.delay
 
 @Composable
 fun HomeScreen(
     snapshot: VpnSnapshot,
     profile: ProfileSummary?,
+    profiles: List<ProfileSummary>,
     ipState: PublicIpState,
     importing: Boolean,
     onConnect: () -> Unit,
     onDisconnect: () -> Unit,
     onReconnect: () -> Unit,
     onRefreshIp: () -> Unit,
+    onSelectProfile: (String) -> Unit,
     onImport: () -> Unit,
     onOpenProfiles: () -> Unit,
     onOpenLogs: () -> Unit,
@@ -90,12 +103,19 @@ fun HomeScreen(
     var elapsedMillis by remember(snapshot.connectedAtMillis, snapshot.state) {
         mutableLongStateOf(0L)
     }
-    LaunchedEffect(snapshot.connectedAtMillis, snapshot.state) {
+    var switcherOpen by remember { mutableStateOf(false) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(lifecycleOwner, snapshot.connectedAtMillis, snapshot.state) {
         val started = snapshot.connectedAtMillis
         if (snapshot.state == VpnState.CONNECTED && started != null) {
-            while (true) {
-                elapsedMillis = System.currentTimeMillis() - started
-                delay(1_000L)
+            // Tick only while the window is actually resumed. In the background
+            // the system notification chronometer already shows elapsed time, so
+            // a UI timer there would be pure wake-up cost.
+            lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+                while (true) {
+                    elapsedMillis = (System.currentTimeMillis() - started).coerceAtLeast(0L)
+                    delay(1_000L)
+                }
             }
         } else {
             elapsedMillis = 0L
@@ -142,6 +162,8 @@ fun HomeScreen(
                     snapshot = snapshot,
                     profile = profile,
                     elapsedMillis = elapsedMillis,
+                    canSwitchProfile = profiles.size > 1,
+                    onOpenProfileSwitcher = { switcherOpen = true },
                     onConnect = onConnect,
                     onDisconnect = onDisconnect,
                     onRespondChallenge = onRespondChallenge,
@@ -204,6 +226,23 @@ fun HomeScreen(
             }
         }
     }
+
+    if (switcherOpen && profile != null) {
+        ProfileSwitcherSheet(
+            profiles = profiles,
+            selectedId = profile.id,
+            locked = snapshot.state.isActive,
+            onSelect = {
+                switcherOpen = false
+                onSelectProfile(it)
+            },
+            onManageProfiles = {
+                switcherOpen = false
+                onOpenProfiles()
+            },
+            onDismiss = { switcherOpen = false },
+        )
+    }
 }
 
 @Composable
@@ -211,6 +250,8 @@ private fun ConnectionHero(
     snapshot: VpnSnapshot,
     profile: ProfileSummary,
     elapsedMillis: Long,
+    canSwitchProfile: Boolean,
+    onOpenProfileSwitcher: () -> Unit,
     onConnect: () -> Unit,
     onDisconnect: () -> Unit,
     onRespondChallenge: () -> Unit,
@@ -235,38 +276,65 @@ private fun ConnectionHero(
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
+                Row(
                     modifier = Modifier
-                        .size(42.dp)
-                        .background(HeroAccent.copy(alpha = 0.14f), CircleShape),
-                    contentAlignment = Alignment.Center,
+                        .weight(1f)
+                        .clip(RoundedCornerShape(14.dp))
+                        .then(
+                            if (canSwitchProfile) {
+                                Modifier.clickable(
+                                    onClickLabel = "Switch profile",
+                                    onClick = onOpenProfileSwitcher,
+                                )
+                            } else {
+                                Modifier
+                            },
+                        )
+                        .padding(vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(
-                        text = profile.emoji,
-                        fontSize = 20.sp,
-                        lineHeight = 22.sp,
-                    )
-                }
-                Spacer(Modifier.width(12.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = profile.name,
-                        style = MaterialTheme.typography.titleMedium,
-                        color = HeroText,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Spacer(Modifier.height(2.dp))
-                    Text(
-                        text = listOfNotNull(
-                            profile.metadata.displayServer,
-                            profile.metadata.protocolLabel,
-                        ).joinToString(" · ").ifBlank { "OpenVPN profile" },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = HeroMuted,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                    Box(
+                        modifier = Modifier
+                            .size(42.dp)
+                            .background(HeroAccent.copy(alpha = 0.14f), CircleShape),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = profile.emoji,
+                            fontSize = 20.sp,
+                            lineHeight = 22.sp,
+                        )
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = profile.name,
+                            style = MaterialTheme.typography.titleMedium,
+                            color = HeroText,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            text = listOfNotNull(
+                                profile.metadata.displayServer,
+                                profile.metadata.protocolLabel,
+                            ).joinToString(" · ").ifBlank { "OpenVPN profile" },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = HeroMuted,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    if (canSwitchProfile) {
+                        Spacer(Modifier.width(4.dp))
+                        Icon(
+                            imageVector = Icons.Filled.KeyboardArrowDown,
+                            contentDescription = "Switch profile",
+                            tint = HeroMuted,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
                 }
                 Spacer(Modifier.width(8.dp))
                 HeroStatusPill(state = snapshot.state)
@@ -558,11 +626,7 @@ private fun PublicIpCard(state: PublicIpState, connected: Boolean, onRefresh: ()
                 Text("Public IP", style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(2.dp))
                 Text(
-                    text = when {
-                        connected -> "Checked through the active tunnel"
-                        state.ip != null -> "Last known egress address"
-                        else -> "What the internet currently sees"
-                    },
+                    text = publicIpSubtitle(state, connected),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -571,55 +635,147 @@ private fun PublicIpCard(state: PublicIpState, connected: Boolean, onRefresh: ()
                 Icon(Icons.Filled.Refresh, contentDescription = "Refresh public IP")
             }
         }
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(10.dp))
         when {
-            state.loading -> Row(verticalAlignment = Alignment.CenterVertically) {
-                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                Spacer(Modifier.width(10.dp))
-                Text("Checking…", style = MaterialTheme.typography.bodyMedium)
-            }
-            state.error != null -> {
-                Text(
-                    text = state.error,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.error,
-                )
-                Spacer(Modifier.height(8.dp))
-                TextButton(onClick = onRefresh) { Text("Try again") }
-            }
-            state.ip != null -> {
-                Text(
-                    text = state.ip.orEmpty(),
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    text = "Egress address reported by the IP service. Not a full leak test.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            else -> {
-                Text(
-                    text = "Check the address the internet sees for this device.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.height(10.dp))
-                Button(
-                    onClick = onRefresh,
-                    shape = RoundedCornerShape(14.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                    ),
-                ) {
-                    Text("Check IP address")
-                }
-            }
+            state.loading -> PublicIpLoading(throughTunnel = state.throughTunnel)
+            state.error != null -> PublicIpError(state.error.orEmpty(), onRefresh)
+            state.ip != null -> PublicIpResult(state)
+            else -> PublicIpEmpty(onRefresh)
         }
+    }
+}
+
+private fun publicIpSubtitle(state: PublicIpState, connected: Boolean): String = when {
+    state.loading && state.throughTunnel -> "Checking through the tunnel…"
+    state.loading -> "Checking the direct connection…"
+    state.error != null -> "The last check did not complete"
+    state.ip != null && state.throughTunnel -> "Last checked through the tunnel"
+    state.ip != null -> "Last checked on the direct connection"
+    connected -> "Check the address the internet sees through the tunnel"
+    else -> "What the internet currently sees"
+}
+
+/**
+ * Deliberately static placeholder: a shimmer/spinner would keep animating (and
+ * waking the frame clock) for the whole request, which is exactly the kind of
+ * avoidable work this screen is trying to remove.
+ */
+@Composable
+private fun PublicIpLoading(throughTunnel: Boolean) {
+    val scheme = MaterialTheme.colorScheme
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(0.45f)
+                .height(26.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(scheme.surfaceContainerHigh),
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(0.62f)
+                .height(12.dp)
+                .clip(RoundedCornerShape(6.dp))
+                .background(scheme.surfaceContainerHigh.copy(alpha = 0.7f)),
+        )
+        Text(
+            text = if (throughTunnel) {
+                "Querying the IP service through the active tunnel…"
+            } else {
+                "Querying the IP service on the active network…"
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = scheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun PublicIpError(message: String, onRefresh: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    Row(verticalAlignment = Alignment.Top) {
+        Icon(
+            imageVector = Icons.Filled.Warning,
+            contentDescription = null,
+            tint = scheme.error,
+            modifier = Modifier
+                .padding(top = 2.dp)
+                .size(18.dp),
+        )
+        Spacer(Modifier.width(8.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = message,
+                style = MaterialTheme.typography.bodyMedium,
+                color = scheme.onSurface,
+            )
+            Spacer(Modifier.height(4.dp))
+            TextButton(onClick = onRefresh) { Text("Try again") }
+        }
+    }
+}
+
+@Composable
+private fun PublicIpResult(state: PublicIpState) {
+    val scheme = MaterialTheme.colorScheme
+    val context = LocalContext.current
+    val checkedAt = state.checkedAtMillis
+    val checkedLabel = if (checkedAt != null) {
+        val timeFormat = remember(context) {
+            android.text.format.DateFormat.getTimeFormat(context)
+        }
+        timeFormat.format(Date(checkedAt))
+    } else {
+        null
+    }
+    Text(
+        text = state.ip.orEmpty(),
+        style = MaterialTheme.typography.headlineSmall,
+        fontFamily = FontFamily.Monospace,
+        fontWeight = FontWeight.SemiBold,
+        color = scheme.onSurface,
+    )
+    Spacer(Modifier.height(8.dp))
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        MetaChip(
+            text = if (state.throughTunnel) "Via tunnel" else "Direct",
+            emphasized = state.throughTunnel,
+        )
+        if (checkedLabel != null) {
+            Text(
+                text = "Checked $checkedLabel",
+                style = MaterialTheme.typography.bodySmall,
+                color = scheme.onSurfaceVariant,
+            )
+        }
+    }
+    Spacer(Modifier.height(8.dp))
+    Text(
+        text = "Egress address reported by the IP service. Not a full leak test.",
+        style = MaterialTheme.typography.bodySmall,
+        color = scheme.onSurfaceVariant,
+    )
+}
+
+@Composable
+private fun PublicIpEmpty(onRefresh: () -> Unit) {
+    Text(
+        text = "The check sends one HTTPS request to an IP echo service through the active network.",
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    Spacer(Modifier.height(10.dp))
+    Button(
+        onClick = onRefresh,
+        shape = RoundedCornerShape(14.dp),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+        ),
+    ) {
+        Text("Check IP address")
     }
 }

@@ -24,6 +24,49 @@ taps. Do not generalize the emulator result into a full leak-protection claim.
 > an Activity initialization crash and (for v1.0.1) the TUN delegation bug was
 > still being fixed. Use **v1.0.2 or newer**.
 
+## Change-set verification: Home profiles, network card, power pass (PR #2)
+
+Verification run for the `feat/home-network-profiles-performance` change set
+(issue #1, PR #2) on a Windows host with JDK 17 and Gradle 8.11.1, using the
+x86_64 native dependency build:
+
+```bash
+./gradlew -Pabis=x86_64 \
+  :app:testDebugUnitTest \
+  :app:lintDebug \
+  :app:assembleDebug \
+  :app:assembleDebugAndroidTest
+```
+
+Result: **pass**.
+
+- 85 unit tests, 0 failures across 13 suites. New coverage:
+  `EmojiCatalogTest` (custom emoji grapheme/emoji-base validation),
+  `StatsRefreshPolicyTest` (connected/screen-off polling cadence),
+  `VpnControllerLogBufferTest` (coalesced bounded diagnostics, duplicate
+  suppression, thread safety), `ProfileStoreLoadTest` (single-profile decrypt
+  path).
+- `lintDebug`: 0 errors.
+- Debug APK and instrumentation-test APK built.
+- The arm64-v8a native dependency build was not exercised on this host;
+  `Android CI` builds both ABIs from the pinned sources for the branch/PR.
+
+Manual checks that still require an emulator or device (not run for this change
+set):
+
+- [ ] Fail a public-IP check, then retry: the card shows the loading skeleton,
+      never the previous address; a successful check shows the egress path and
+      check time.
+- [ ] Switch profiles from Home; switching is blocked while connected; the
+      notification and Quick Settings tile use the newly selected profile.
+- [ ] Assign a custom emoji icon (e.g. `👨‍👩‍👧‍👦`, `🇧🇩`, `1️⃣`), restart the
+      app, and confirm it persists; confirm plain text is rejected.
+- [ ] Connect, background the app and turn the screen off: stats polling drops
+      to the 10 s cadence, and no notification/tile update happens for
+      stats-only changes.
+- [ ] Wi-Fi ↔ cellular transition logs one "Network changed" line, re-applies
+      the underlying network, and refreshes connection details once.
+
 ## Environment used
 
 | Item | Value |

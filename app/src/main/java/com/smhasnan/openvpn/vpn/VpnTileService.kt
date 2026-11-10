@@ -22,8 +22,14 @@ class VpnTileService : TileService() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var listenerJob: Job? = null
 
+    /** Last content pushed to SystemUI; stats-only snapshot updates leave it unchanged. */
+    private var lastRendered: TileContent? = null
+
     override fun onStartListening() {
         super.onStartListening()
+        // A fresh listening session gets a tile that must be rendered once even
+        // if it happens to carry the same content as the previous session.
+        lastRendered = null
         listenerJob?.cancel()
         listenerJob = scope.launch {
             VpnController.snapshot.collect { snapshot -> updateTile(snapshot) }
@@ -88,9 +94,14 @@ class VpnTileService : TileService() {
     }
 
     private fun updateTile(snapshot: VpnSnapshot) {
-        val tile = qsTile ?: return
-        tile.state = if (snapshot.state.isActive) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
-        tile.label = when (snapshot.state) {
+        val tile = qsTile
+        if (tile == null) {
+            // The tile is gone; force a render when SystemUI hands it back.
+            lastRendered = null
+            return
+        }
+        val state = if (snapshot.state.isActive) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
+        val label = when (snapshot.state) {
             VpnState.CONNECTED -> "VPN connected"
             VpnState.CONNECTING, VpnState.PREPARING -> "VPN connecting"
             VpnState.RECONNECTING -> "VPN reconnecting"
@@ -98,15 +109,32 @@ class VpnTileService : TileService() {
             VpnState.ERROR, VpnState.AUTH_FAILED -> "VPN error"
             else -> "OpenVPN"
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            tile.subtitle = snapshot.profileName ?: if (snapshot.state == VpnState.DISCONNECTED) {
+        val subtitle = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            snapshot.profileName ?: if (snapshot.state == VpnState.DISCONNECTED) {
                 "Tap to connect"
             } else {
                 "OpenVPN"
             }
+        } else {
+            null
+        }
+        val content = TileContent(state, label, subtitle)
+        if (content == lastRendered) return
+        lastRendered = content
+        tile.state = state
+        tile.label = label
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && subtitle != null) {
+            tile.subtitle = subtitle
         }
         tile.updateTile()
     }
+
+    /** Fields the tile renders; snapshot traffic stats are deliberately excluded. */
+    private data class TileContent(
+        val state: Int,
+        val label: String,
+        val subtitle: String?,
+    )
 
     @SuppressLint("StartActivityAndCollapseDeprecated")
     private fun openApp() {
