@@ -1,5 +1,8 @@
 # OpenVPN Client for Android
 
+[![Android CI](https://github.com/smhasnanmonir/openvpn/actions/workflows/android.yml/badge.svg)](https://github.com/smhasnanmonir/openvpn/actions/workflows/android.yml)
+[![Latest release](https://img.shields.io/github/v/release/smhasnanmonir/openvpn)](https://github.com/smhasnanmonir/openvpn/releases/latest)
+
 A production-minded Android OpenVPN client built with Kotlin, Jetpack Compose,
 Android `VpnService`, and the official **OpenVPN 3 Core** engine.
 
@@ -98,6 +101,19 @@ scripts/                     reproducible dependency fetch/build scripts
 docs/                        architecture, security, integration, testing
 .github/workflows/           CI and signed release workflow
 ```
+
+## Install a release
+
+Download the signed APK from the
+[latest GitHub Release](https://github.com/smhasnanmonir/openvpn/releases/latest),
+then:
+
+```bash
+adb install -r app-release.apk
+```
+
+The app requires Android 8.0+ (API 26). Verify the release signature against the
+certificate digest documented in [docs/testing.md](docs/testing.md).
 
 ## Build
 
