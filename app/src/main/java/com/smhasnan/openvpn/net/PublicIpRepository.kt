@@ -16,9 +16,10 @@ class PublicIpRepository {
     suspend fun fetch(): Result<String> = withContext(Dispatchers.IO) {
         runCatching {
             val connection = (URL(ENDPOINT).openConnection() as HttpURLConnection).apply {
-                connectTimeout = 8_000
-                readTimeout = 8_000
+                connectTimeout = 6_000
+                readTimeout = 6_000
                 requestMethod = "GET"
+                useCaches = false
                 setRequestProperty("Accept", "application/json")
                 setRequestProperty("User-Agent", "OpenVPNClient-Android/1.0")
                 instanceFollowRedirects = false

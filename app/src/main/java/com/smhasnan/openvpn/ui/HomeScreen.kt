@@ -21,6 +21,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -42,6 +43,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -54,6 +56,7 @@ import com.smhasnan.openvpn.ui.components.DividerLine
 import com.smhasnan.openvpn.ui.components.EmptyState
 import com.smhasnan.openvpn.ui.components.KeyValueRow
 import com.smhasnan.openvpn.ui.components.MessageBanner
+import com.smhasnan.openvpn.ui.components.MetaChip
 import com.smhasnan.openvpn.ui.components.ProfileSwitcherSheet
 import com.smhasnan.openvpn.ui.components.ScreenHeader
 import com.smhasnan.openvpn.ui.components.SectionCard
@@ -73,6 +76,7 @@ import com.smhasnan.openvpn.util.DurationFormat
 import com.smhasnan.openvpn.vpn.PublicIpState
 import com.smhasnan.openvpn.vpn.VpnSnapshot
 import com.smhasnan.openvpn.vpn.VpnState
+import java.util.Date
 import kotlinx.coroutines.delay
 
 @Composable
@@ -613,11 +617,7 @@ private fun PublicIpCard(state: PublicIpState, connected: Boolean, onRefresh: ()
                 Text("Public IP", style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(2.dp))
                 Text(
-                    text = when {
-                        connected -> "Checked through the active tunnel"
-                        state.ip != null -> "Last known egress address"
-                        else -> "What the internet currently sees"
-                    },
+                    text = publicIpSubtitle(state, connected),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -626,55 +626,146 @@ private fun PublicIpCard(state: PublicIpState, connected: Boolean, onRefresh: ()
                 Icon(Icons.Filled.Refresh, contentDescription = "Refresh public IP")
             }
         }
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(10.dp))
         when {
-            state.loading -> Row(verticalAlignment = Alignment.CenterVertically) {
-                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                Spacer(Modifier.width(10.dp))
-                Text("Checking…", style = MaterialTheme.typography.bodyMedium)
-            }
-            state.error != null -> {
-                Text(
-                    text = state.error,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.error,
-                )
-                Spacer(Modifier.height(8.dp))
-                TextButton(onClick = onRefresh) { Text("Try again") }
-            }
-            state.ip != null -> {
-                Text(
-                    text = state.ip.orEmpty(),
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    text = "Egress address reported by the IP service. Not a full leak test.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            else -> {
-                Text(
-                    text = "Check the address the internet sees for this device.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.height(10.dp))
-                Button(
-                    onClick = onRefresh,
-                    shape = RoundedCornerShape(14.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                    ),
-                ) {
-                    Text("Check IP address")
-                }
-            }
+            state.loading -> PublicIpLoading(throughTunnel = state.throughTunnel)
+            state.error != null -> PublicIpError(state.error.orEmpty(), onRefresh)
+            state.ip != null -> PublicIpResult(state)
+            else -> PublicIpEmpty(onRefresh)
         }
+    }
+}
+
+private fun publicIpSubtitle(state: PublicIpState, connected: Boolean): String = when {
+    state.loading && state.throughTunnel -> "Checking through the tunnel…"
+    state.loading -> "Checking the direct connection…"
+    state.error != null -> "The last check did not complete"
+    state.ip != null && state.throughTunnel -> "Last checked through the tunnel"
+    state.ip != null -> "Last checked on the direct connection"
+    connected -> "Check the address the internet sees through the tunnel"
+    else -> "What the internet currently sees"
+}
+
+/**
+ * Deliberately static placeholder: a shimmer/spinner would keep animating (and
+ * waking the frame clock) for the whole request, which is exactly the kind of
+ * avoidable work this screen is trying to remove.
+ */
+@Composable
+private fun PublicIpLoading(throughTunnel: Boolean) {
+    val scheme = MaterialTheme.colorScheme
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(0.45f)
+                .height(26.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(scheme.surfaceContainerHigh),
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(0.62f)
+                .height(12.dp)
+                .clip(RoundedCornerShape(6.dp))
+                .background(scheme.surfaceContainerHigh.copy(alpha = 0.7f)),
+        )
+        Text(
+            text = if (throughTunnel) {
+                "Querying the IP service through the active tunnel…"
+            } else {
+                "Querying the IP service on the active network…"
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = scheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun PublicIpError(message: String, onRefresh: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    Row(verticalAlignment = Alignment.Top) {
+        Icon(
+            imageVector = Icons.Filled.Warning,
+            contentDescription = null,
+            tint = scheme.error,
+            modifier = Modifier
+                .padding(top = 2.dp)
+                .size(18.dp),
+        )
+        Spacer(Modifier.width(8.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = message,
+                style = MaterialTheme.typography.bodyMedium,
+                color = scheme.onSurface,
+            )
+            Spacer(Modifier.height(4.dp))
+            TextButton(onClick = onRefresh) { Text("Try again") }
+        }
+    }
+}
+
+@Composable
+private fun PublicIpResult(state: PublicIpState) {
+    val scheme = MaterialTheme.colorScheme
+    val checkedAt = state.checkedAtMillis
+    val checkedLabel = if (checkedAt != null) {
+        val timeFormat = remember {
+            android.text.format.DateFormat.getTimeFormat(LocalContext.current)
+        }
+        timeFormat.format(Date(checkedAt))
+    } else {
+        null
+    }
+    Text(
+        text = state.ip.orEmpty(),
+        style = MaterialTheme.typography.headlineSmall,
+        fontFamily = FontFamily.Monospace,
+        fontWeight = FontWeight.SemiBold,
+        color = scheme.onSurface,
+    )
+    Spacer(Modifier.height(8.dp))
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        MetaChip(
+            text = if (state.throughTunnel) "Via tunnel" else "Direct",
+            emphasized = state.throughTunnel,
+        )
+        if (checkedLabel != null) {
+            Text(
+                text = "Checked $checkedLabel",
+                style = MaterialTheme.typography.bodySmall,
+                color = scheme.onSurfaceVariant,
+            )
+        }
+    }
+    Spacer(Modifier.height(8.dp))
+    Text(
+        text = "Egress address reported by the IP service. Not a full leak test.",
+        style = MaterialTheme.typography.bodySmall,
+        color = scheme.onSurfaceVariant,
+    )
+}
+
+@Composable
+private fun PublicIpEmpty(onRefresh: () -> Unit) {
+    Text(
+        text = "The check sends one HTTPS request to an IP echo service through the active network.",
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    Spacer(Modifier.height(10.dp))
+    Button(
+        onClick = onRefresh,
+        shape = RoundedCornerShape(14.dp),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+        ),
+    ) {
+        Text("Check IP address")
     }
 }

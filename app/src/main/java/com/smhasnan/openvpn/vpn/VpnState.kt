@@ -75,9 +75,17 @@ data class LogEntry(
 
 enum class LogLevel { INFO, WARN, ERROR }
 
+/**
+ * UI state of the public-IP check. A state carries at most one outcome:
+ * [loading], [error], or [ip]. Starting a new check replaces the whole value, so
+ * an address from an earlier tunnel/direct path can never be mistaken for the
+ * current result while a retry is in flight.
+ */
 data class PublicIpState(
     val loading: Boolean = false,
     val ip: String? = null,
     val error: String? = null,
     val checkedAtMillis: Long? = null,
+    /** Whether the last started check travels (or travelled) through the tunnel. */
+    val throughTunnel: Boolean = false,
 )
