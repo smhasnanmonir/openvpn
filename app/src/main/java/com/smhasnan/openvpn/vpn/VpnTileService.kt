@@ -123,7 +123,9 @@ class VpnTileService : TileService() {
         lastRendered = content
         tile.state = state
         tile.label = label
-        if (subtitle != null) tile.subtitle = subtitle
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && subtitle != null) {
+            tile.subtitle = subtitle
+        }
         tile.updateTile()
     }
 
