@@ -71,8 +71,14 @@ class VpnTileService : TileService() {
         scope.launch {
             val credentials = appContainer.profiles.loadCredentials(profile.id)
             val needsCredentials = !profile.metadata.autologin
-            if (needsCredentials &&
-                (credentials?.username.isNullOrBlank() || credentials?.password.isNullOrBlank())
+            val missingUsername = needsCredentials &&
+                profile.metadata.userlockedUsername.isNullOrBlank() &&
+                credentials?.username.isNullOrBlank()
+            val missingPassword = needsCredentials && credentials?.password.isNullOrBlank()
+            val missingKey = profile.metadata.privateKeyPasswordRequired &&
+                credentials?.privateKeyPassword.isNullOrBlank()
+            if (missingUsername || missingPassword || missingKey ||
+                !profile.metadata.staticChallenge.isNullOrBlank()
             ) {
                 openApp()
                 return@launch

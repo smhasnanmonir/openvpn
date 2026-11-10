@@ -11,6 +11,7 @@
 #include <cctype>
 #include <stdexcept>
 #include <cstring>
+#include <cstdlib>
 #include <memory>
 #include <mutex>
 #include <sstream>
@@ -768,9 +769,24 @@ Java_com_smhasnan_openvpn_nativevpn_OpenVpnNative_selfTest(JNIEnv *env, jobject)
     {
         openvpn::ClientAPI::OpenVPNClientHelper helper;
         const std::string result = helper.crypto_self_test();
+        bool ok = result.empty();
+        bool found_status = false;
+        std::size_t pos = 0;
+        while ((pos = result.find("status=", pos)) != std::string::npos)
+        {
+            found_status = true;
+            pos += 7;
+            const int value = std::atoi(result.c_str() + pos);
+            if (value != 0)
+                ok = false;
+        }
+        if (!result.empty() && !found_status)
+            ok = false;
+        if (result.find("not compiled") != std::string::npos)
+            ok = false;
         std::ostringstream os;
         os << '{';
-        os << "\"ok\":" << (result.empty() ? "true" : "false");
+        os << "\"ok\":" << (ok ? "true" : "false");
         os << ",\"message\":\"" << json_escape(sanitize_error(result)) << '"';
         os << '}';
         return to_java(env, os.str());

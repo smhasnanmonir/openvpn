@@ -98,6 +98,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun selectProfile(id: String) {
+        val active = VpnController.snapshot.value
+        if (active.state.isActive && active.profileId != null && active.profileId != id) {
+            message("Disconnect the VPN before switching profiles.", isError = true)
+            return
+        }
         viewModelScope.launch {
             container.profiles.select(id)
             message("Profile selected")
@@ -118,9 +123,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             val stored = container.profiles.loadCredentials(profile.id) ?: ProfileCredentials()
             val userlocked = profile.metadata.userlockedUsername
             promptBase = if (userlocked.isNullOrBlank()) stored else stored.copy(username = userlocked)
+            val forceInteractive = VpnController.snapshot.value.state == VpnState.AUTH_FAILED
             val needsUsername = !profile.metadata.autologin &&
-                userlocked.isNullOrBlank() && stored.username.isNullOrBlank()
-            val needsPassword = !profile.metadata.autologin && stored.password.isNullOrBlank()
+                (forceInteractive || (userlocked.isNullOrBlank() && stored.username.isNullOrBlank()))
+            val needsPassword = !profile.metadata.autologin && (forceInteractive || stored.password.isNullOrBlank())
             val needsResponse = !profile.metadata.staticChallenge.isNullOrBlank()
             val needsKey = profile.metadata.privateKeyPasswordRequired &&
                 stored.privateKeyPassword.isNullOrBlank()
@@ -156,6 +162,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             response = input.response,
         )
         _credentialPrompt.value = null
+        val collectedCredentialFields = prompt.needsUsername ||
+            prompt.needsPassword || prompt.needsPrivateKeyPassword
         viewModelScope.launch {
             if (input.remember) {
                 container.profiles.saveCredentials(
@@ -166,7 +174,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         privateKeyPassword = merged.privateKeyPassword,
                     ),
                 ).onFailure { message("Credentials could not be saved securely.", isError = true) }
-            } else {
+            } else if (collectedCredentialFields) {
                 container.profiles.deleteCredentials(prompt.profileId)
             }
             _connectRequests.emit(ConnectRequest(prompt.profileId, merged))
@@ -255,6 +263,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun deleteProfile(id: String) {
+        val active = VpnController.snapshot.value
+        if (active.state.isActive && active.profileId == id) {
+            message("Disconnect the VPN before deleting its profile.", isError = true)
+            return
+        }
         viewModelScope.launch {
             container.profiles.delete(id)
                 .onSuccess { message("Profile deleted") }

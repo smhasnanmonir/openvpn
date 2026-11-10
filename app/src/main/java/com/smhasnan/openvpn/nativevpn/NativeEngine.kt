@@ -134,7 +134,7 @@ object NativeEngine {
             val json = JSONObject(OpenVpnNative.selfTest())
             val ok = json.optBoolean("ok")
             val message = LogSanitizer.sanitize(json.optString("message"))
-            if (ok) "OpenVPN Core crypto self-test passed." else (message.ifBlank { "Crypto self-test failed." })
+            if (ok) "OpenVPN Core crypto self-test passed." else message.take(500).ifBlank { "Crypto self-test failed." }
         }
     }
 

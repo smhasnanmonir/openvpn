@@ -125,10 +125,6 @@ fun AppRoot(
         }
     }
 
-    LaunchedEffect(snapshot.state) {
-        if (snapshot.state == VpnState.NEEDS_CHALLENGE) challengeDialogVisible = true
-    }
-
     LaunchedEffect(Unit) {
         viewModel.connectRequests.collect { request ->
             val consent = VpnService.prepare(context)

@@ -413,7 +413,11 @@ private fun PublicIpCard(state: PublicIpState, connected: Boolean, onRefresh: ()
             Column(modifier = Modifier.weight(1f)) {
                 Text("Public IP", style = MaterialTheme.typography.titleMedium)
                 Text(
-                    if (connected) "Checked through the active VPN network" else "The internet address apps currently use",
+                    when {
+                        connected -> "Checked through the active VPN network"
+                        state.ip != null -> "Last checked egress address; refresh to re-check the current route"
+                        else -> "The internet address apps currently use"
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

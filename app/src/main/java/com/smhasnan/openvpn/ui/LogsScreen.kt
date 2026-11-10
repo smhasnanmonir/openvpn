@@ -67,7 +67,10 @@ fun LogsScreen(
     val timeFormat = remember { SimpleDateFormat("HH:mm:ss", Locale.US) }
 
     LaunchedEffect(filtered.size) {
-        if (filtered.isNotEmpty()) listState.animateScrollToItem(filtered.lastIndex)
+        val visible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+        if (filtered.isNotEmpty() && visible >= filtered.size - 3) {
+            listState.animateScrollToItem(filtered.lastIndex)
+        }
     }
 
     Column(

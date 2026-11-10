@@ -113,15 +113,16 @@ class MyVpnService : VpnService() {
             ACTION_CONNECT -> {
                 val profileId = intent.getStringExtra(EXTRA_PROFILE_ID)
                 if (profileId.isNullOrBlank()) {
-                    failFast("No VPN profile was selected.")
+                    if (showPreparingForeground("unknown")) failFast("No VPN profile was selected.")
                     return START_NOT_STICKY
                 }
                 if (synchronized(sessionLock) { session != null } || starting.get()) {
                     VpnController.appendLog(LogLevel.WARN, "Ignoring duplicate VPN connection request")
                     return START_NOT_STICKY
                 }
-                showPreparingForeground(profileId)
-                beginConnect(profileId)
+                if (showPreparingForeground(profileId)) {
+                    beginConnect(profileId)
+                }
             }
             ACTION_DISCONNECT -> requestDisconnect(revoked = false)
             ACTION_RECONNECT -> {
@@ -173,7 +174,7 @@ class MyVpnService : VpnService() {
         super.onDestroy()
     }
 
-    private fun showPreparingForeground(profileId: String) {
+    private fun showPreparingForeground(profileId: String): Boolean {
         val summary = appContainer.profiles.summary(profileId)
         VpnController.prepare(
             profileId = profileId,
@@ -193,9 +194,11 @@ class MyVpnService : VpnService() {
                 notification,
                 type,
             )
+            return true
         } catch (e: Exception) {
             VpnController.error("Could not start the VPN foreground service: ${e.javaClass.simpleName}")
             stopSelf()
+            return false
         }
     }
 
@@ -240,7 +243,17 @@ class MyVpnService : VpnService() {
                     fail("OpenVPN engine is unavailable: ${e.message ?: "unknown error"}")
                     return@launch
                 }
-                synchronized(sessionLock) { session = newSession }
+                if (destroyed) {
+                    runCatching { newSession.close() }
+                    return@launch
+                }
+                synchronized(sessionLock) {
+                    if (destroyed) {
+                        runCatching { newSession.close() }
+                        return@launch
+                    }
+                    session = newSession
+                }
 
                 val started = newSession.connect(
                     config = stored.config,

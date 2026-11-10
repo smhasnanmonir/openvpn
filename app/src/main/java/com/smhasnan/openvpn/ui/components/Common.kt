@@ -106,7 +106,7 @@ fun ProfileAvatar(
                         MaterialTheme.colorScheme.secondaryContainer,
                     ),
                     start = Offset.Zero,
-                    end = Offset.Infinite,
+                    end = Offset(180f, 180f),
                 ),
             )
             .border(if (selected) 2.dp else 1.dp, borderColor, CircleShape),
@@ -116,6 +116,7 @@ fun ProfileAvatar(
             text = emoji,
             fontSize = (size.value * 0.44f).sp,
             lineHeight = (size.value * 0.5f).sp,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
         )
     }
 }
