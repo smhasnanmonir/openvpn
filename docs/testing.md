@@ -189,6 +189,10 @@ emulator with `am instrument`; all five passed:
   counters; emulator `ip route` showed `10.8.0.0/24 dev tun0 src 10.8.0.2`.
 - `adb shell ping -c 3 10.8.0.1` returned 3/3 replies.
 - After disconnect, the `tun0` route disappeared.
+- The Android DocumentsUI picker opened after the fragment fix. Automated
+  selection through the system picker was not scripted; the production
+  `ConfigImporter` pipeline was exercised by instrumentation with a private
+  `file://` URI, covering merge, eval, encrypted persistence, and selection.
 ## Required device test plan
 
 Record for every run: device model, Android build, app version/ABI, core
