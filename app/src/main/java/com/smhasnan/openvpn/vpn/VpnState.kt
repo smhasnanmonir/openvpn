@@ -1,0 +1,83 @@
+package com.smhasnan.openvpn.vpn
+
+enum class VpnState {
+    DISCONNECTED,
+    PREPARING,
+    CONNECTING,
+    CONNECTED,
+    RECONNECTING,
+    DISCONNECTING,
+    NEEDS_CHALLENGE,
+    AUTH_FAILED,
+    ERROR,
+    ;
+
+    val isActive: Boolean
+        get() = this == PREPARING || this == CONNECTING || this == CONNECTED ||
+            this == RECONNECTING || this == NEEDS_CHALLENGE
+
+    val isConnected: Boolean
+        get() = this == CONNECTED
+
+    val canDisconnect: Boolean
+        get() = isActive || this == AUTH_FAILED || this == ERROR
+}
+
+data class TrafficStats(
+    val bytesIn: Long = 0L,
+    val bytesOut: Long = 0L,
+    val packetsIn: Long = 0L,
+    val packetsOut: Long = 0L,
+) {
+    val hasData: Boolean
+        get() = bytesIn > 0L || bytesOut > 0L
+}
+
+data class ConnectionDetails(
+    val serverHost: String? = null,
+    val serverPort: String? = null,
+    val protocol: String? = null,
+    val serverIp: String? = null,
+    val vpnIp4: String? = null,
+    val vpnIp6: String? = null,
+    val mtu: String? = null,
+    val tunName: String? = null,
+) {
+    val serverLabel: String?
+        get() = when {
+            serverHost.isNullOrBlank() -> null
+            serverPort.isNullOrBlank() -> serverHost
+            else -> "$serverHost:$serverPort"
+        }
+}
+
+data class VpnSnapshot(
+    val state: VpnState = VpnState.DISCONNECTED,
+    val profileId: String? = null,
+    val profileName: String? = null,
+    val profileEmoji: String? = null,
+    val connectedAtMillis: Long? = null,
+    val error: String? = null,
+    val challenge: String? = null,
+    val details: ConnectionDetails = ConnectionDetails(),
+    val stats: TrafficStats = TrafficStats(),
+) {
+    val isBusy: Boolean
+        get() = state == VpnState.PREPARING || state == VpnState.CONNECTING ||
+            state == VpnState.DISCONNECTING
+}
+
+data class LogEntry(
+    val timestampMillis: Long,
+    val level: LogLevel,
+    val message: String,
+)
+
+enum class LogLevel { INFO, WARN, ERROR }
+
+data class PublicIpState(
+    val loading: Boolean = false,
+    val ip: String? = null,
+    val error: String? = null,
+    val checkedAtMillis: Long? = null,
+)
