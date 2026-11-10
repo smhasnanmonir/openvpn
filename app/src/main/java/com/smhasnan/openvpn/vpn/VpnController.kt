@@ -78,7 +78,15 @@ object VpnController {
         // CONNECTION_TIMEOUT carry no info text, so the mapped message is the
         // only usable explanation and must reach the diagnostics list.
         when {
-            error || fatal -> appendLog(LogLevel.ERROR, mapped.message ?: name)
+            error || fatal -> {
+                val message = mapped.message ?: name
+                appendLog(LogLevel.ERROR, message)
+                // Keep the engine's own detail in Diagnostics even when the
+                // mapper replaced it with a user-facing explanation.
+                if (info.isNotBlank() && info != message) {
+                    appendLog(LogLevel.INFO, "Engine detail: $info")
+                }
+            }
             name != "SESSION_FINISHED" ->
                 appendLog(LogLevel.INFO, "$name${if (info.isBlank()) "" else ": $info"}")
         }

@@ -6,6 +6,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -156,6 +157,34 @@ class VpnControllerLogBufferTest {
         assertEquals("before the failure", snapshot.first().message)
         assertEquals(LogLevel.ERROR, snapshot.last().level)
         assertEquals("engine failed", snapshot.last().message)
+    }
+
+    @Test
+    fun mappedFailureKeepsRawEngineDetailInDiagnostics() = runBlocking {
+        VpnController.prepare("profile", "Provider profile", "🛡️")
+        VpnController.engineEvent("CONNECTING", "", false, false)
+        VpnController.engineEvent(
+            "SESSION_FINISHED",
+            "client_connect_unhandled_exception",
+            error = true,
+            fatal = false,
+        )
+
+        val snapshot = awaitLogs { logs ->
+            logs.any { it.message == "Engine detail: client_connect_unhandled_exception" }
+        }
+        assertTrue(
+            snapshot.any {
+                it.level == LogLevel.ERROR && it.message.contains("unexpectedly")
+            },
+        )
+        assertTrue(
+            snapshot.any { it.message == "Engine detail: client_connect_unhandled_exception" },
+        )
+        assertEquals(VpnState.ERROR, VpnController.snapshot.value.state)
+        assertFalse(
+            VpnController.snapshot.value.error!!.contains("client_connect_unhandled_exception"),
+        )
     }
 
     @Test
