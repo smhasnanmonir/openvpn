@@ -28,6 +28,7 @@ endif()
 set(OPENVPN3_PATCHED_DIR "${CMAKE_CURRENT_BINARY_DIR}/openvpn3-patched")
 set(OPENVPN3_PROTO_SOURCE "${OPENVPN3_DIR}/openvpn/ssl/proto.hpp")
 set(OPENVPN3_PROTO_PATCHED "${OPENVPN3_PATCHED_DIR}/openvpn/ssl/proto.hpp")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${OPENVPN3_PROTO_SOURCE}")
 file(READ "${OPENVPN3_PROTO_SOURCE}" OPENVPN3_PROTO_CONTENT)
 set(OPENVPN3_DYN_TLS_CRYPT_UNPATCHED
     "            if (CryptoAlgs::lookup(\"SHA256\") != CryptoAlgs::NONE && CryptoAlgs::lookup(\"AES-256-CTR\") != CryptoAlgs::NONE)\n                iv_proto |= IV_PROTO_DYN_TLS_CRYPT;")
