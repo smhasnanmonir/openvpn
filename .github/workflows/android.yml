@@ -38,14 +38,16 @@ jobs:
           gradle-version: "8.11.1"
 
       - name: Install pinned Android SDK packages
+        timeout-minutes: 20
         run: |
           set +o pipefail
-          SDKMANAGER="${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
+          SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          SDKMANAGER="${SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager"
           if [[ ! -x "$SDKMANAGER" ]]; then
             SDKMANAGER="$(command -v sdkmanager)"
           fi
-          yes | "$SDKMANAGER" --licenses >/dev/null || true
-          "$SDKMANAGER" --install "platform-tools" "platforms;android-35" "build-tools;35.0.0" \
+          yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
+          yes | "$SDKMANAGER" --install "platform-tools" "platforms;android-35" "build-tools;35.0.0" \
             "ndk;27.2.12479018" "cmake;3.22.1"
 
       - name: Cache native dependencies
