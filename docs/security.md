@@ -64,6 +64,17 @@ The app supports profiles that use standard CA/`peer-fingerprint` validation
 according to what OpenVPN Core 3.9 supports. It does not add custom pinning or
 custom crypto.
 
+Two compatibility accommodations are documented in ADR-005:
+
+- Server-pushed **asymmetric** (server-to-client) compression is accepted
+  (`compressionMode = "asym"`), because some providers require it. Symmetric
+  compression remains refused, and legacy `comp-list`/`comp-lzo` negotiation that
+  would compress client-to-server data is not enabled.
+- At import, a `tls-cipher` pin whose suites are all legacy non-ECDHE (TLS 1.2)
+  suites is dropped so the pinned core can negotiate TLS 1.3; defaults from the
+  bundled mbedTLS are used instead. Certificate and server-name verification are
+  unchanged.
+
 ## Secret handling
 
 - Credentials entered in the UI are handed to the service through an in-process

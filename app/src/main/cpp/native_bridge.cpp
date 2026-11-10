@@ -457,6 +457,11 @@ class JniSession final : public monirvpn::EngineCallbacks
             cfg.tunPersist = false;
             cfg.clockTickMS = 0;
             cfg.connTimeout = 60;
+            // Compatibility: some providers push asymmetric (server -> client)
+            // LZO compression. Core's default ("no") tears the session down with
+            // COMPRESS_ERROR right after CONNECTED; "asym" accepts exactly that
+            // legacy server-side mode while still refusing symmetric compression.
+            cfg.compressionMode = "asym";
             cfg.privateKeyPassword = key_password;
             cfg.googleDnsFallback = false;
             cfg.synchronousDnsLookup = false;

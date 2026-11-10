@@ -178,6 +178,22 @@ profiles that need a key passphrase.
   native connect with the cookie.
 - AUTH_FAILED and credential errors are reported as engine events.
 
+### Compatibility settings
+
+Two `ClientAPI::Config` / import-time compatibility settings keep older provider
+profiles connectable with the pinned 3.9 core:
+
+- `Config.compressionMode = "asym"` (set in `native_bridge.cpp`). Core's default
+  is `"no"`, which raises `COMPRESS_ERROR` when a server pushes LZO asymmetric
+  compression right after `CONNECTED`; `"asym"` accepts exactly the
+  server-to-client direction and still refuses symmetric compression (see
+  `openvpn/ssl/proto_context_options.hpp` and ADR-005).
+- Legacy `tls-cipher` pins are dropped at import time when every suite in the
+  directive is a non-ECDHE (TLS 1.2 legacy) suite; those servers now negotiate
+  TLS 1.3 and the pinned list otherwise stalls the handshake until the timeout.
+  This is profile normalization in the app, not a core API; Core still parses
+  and validates the modified profile (see `docs/profile-import.md`).
+
 ### Events
 
 The app maps actual core event names including `CONNECTING`, `CONNECTED`,
@@ -257,9 +273,10 @@ plus the submodule.
   profile's `block-ipv6`/`block-ipv4` directive is therefore not enforceable
   when that family has an address; the app logs a warning instead of claiming
   success.
-- **Compression:** the app does not force legacy compression modes. Profiles
-  that depend on removed/legacy compression may fail with a core error rather
-  than weakening policy.
+- **Compression:** symmetric compression is refused (VORACLE mitigation). The
+  app sets `compressionMode = "asym"` so providers that push asymmetric
+  server-to-client LZO compression still work instead of failing right after
+  `CONNECTED` with `COMPRESS_ERROR`; see ADR-005.
 - **DCO** is not enabled for Android; packet processing uses the core's TUN
   path.
 - **`tunPersist`** is false; TUN is recreated per connection.
