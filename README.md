@@ -54,16 +54,23 @@ protocol or cryptography.
 
 ## Screenshots
 
-Captured from the Android 11 x86_64 emulator during the real-tunnel test
-(debug build):
+Captured from an Android 16 (API 36) x86_64 emulator, debug build, with the
+current UI. The certificate-less username/password profile shown is a provider
+export; the real tunnel was verified separately on an earlier emulator run (see
+`docs/testing.md`).
 
 | Home | Profiles |
 |---|---|
-| ![Connected home](docs/screenshots/home-connected.png) | ![Profiles](docs/screenshots/profiles.png) |
+| ![Home](docs/screenshots/home.png) | ![Profiles](docs/screenshots/profiles.png) |
 
 | Settings | Diagnostics |
 |---|---|
 | ![Settings](docs/screenshots/settings.png) | ![Diagnostics](docs/screenshots/diagnostics.png) |
+
+Engine details in Settings. The Platform value wraps instead of colliding with
+its label:
+
+![Settings diagnostics](docs/screenshots/settings-diagnostics.png)
 
 ## Architecture at a glance
 
