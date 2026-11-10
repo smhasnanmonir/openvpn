@@ -718,10 +718,11 @@ private fun PublicIpError(message: String, onRefresh: () -> Unit) {
 @Composable
 private fun PublicIpResult(state: PublicIpState) {
     val scheme = MaterialTheme.colorScheme
+    val context = LocalContext.current
     val checkedAt = state.checkedAtMillis
     val checkedLabel = if (checkedAt != null) {
-        val timeFormat = remember {
-            android.text.format.DateFormat.getTimeFormat(LocalContext.current)
+        val timeFormat = remember(context) {
+            android.text.format.DateFormat.getTimeFormat(context)
         }
         timeFormat.format(Date(checkedAt))
     } else {
