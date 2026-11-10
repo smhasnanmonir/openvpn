@@ -85,6 +85,7 @@ class MyVpnService : VpnService() {
     private val sessionLock = Any()
     private val starting = AtomicBoolean(false)
     private val finishing = AtomicBoolean(false)
+    private val notificationUpdateScheduled = AtomicBoolean(false)
 
     // Read from the stats coroutine and engine callbacks without the session lock.
     @Volatile private var session: NativeSession? = null
@@ -450,11 +451,18 @@ class MyVpnService : VpnService() {
     }
 
     private fun updateNotification() {
+        if (destroyed) return
+        // Engine callbacks and stats polls can request an update several times
+        // before the main thread runs; keep at most one post and let it read the
+        // latest snapshot instead of notifying once per request.
+        if (!notificationUpdateScheduled.compareAndSet(false, true)) return
         mainHandler.post {
-            if (!destroyed) {
-                VpnNotification.update(this, VpnController.snapshot.value)
-                VpnTileService.requestRefresh(this)
-            }
+            notificationUpdateScheduled.set(false)
+            if (destroyed) return@post
+            val posted = VpnNotification.update(this, VpnController.snapshot.value)
+            // The tile renders the same state/profile content as the
+            // notification, so stats-only updates must not wake SystemUI.
+            if (posted) VpnTileService.requestRefresh(this)
         }
     }
 
