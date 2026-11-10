@@ -2,6 +2,20 @@
 
 All notable changes to this project are documented here.
 
+## [Unreleased]
+
+### Fixed
+
+- Long-lived sessions no longer disconnect at the first rekey when the server
+  offers dynamic tls-crypt on the mbedTLS build. OpenVPN Core 3.9 advertised
+  `IV_PROTO_DYN_TLS_CRYPT` even though the pinned mbedTLS backend cannot export
+  keying material; the build now gates the advertisement on
+  `support_key_material_export()` (ADR-006).
+- A rekey/key-export failure or an unhandled Core exception now produces an
+  actionable error message instead of the raw
+  `client_connect_unhandled_exception` text. The engine detail remains in
+  Diagnostics.
+
 ## [1.2.0] - 2026-11-10
 
 ### Added

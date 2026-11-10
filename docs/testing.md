@@ -285,6 +285,69 @@ Residual notes: the in-app public-IP check timed out once through one US node
 independently confirmed); provider byte counters were small (KB) but tunnel data
 flow and egress-IP change were confirmed.
 
+## Rekey stability: dynamic tls-crypt on mbedTLS (2026-11-10)
+
+Context: the provider session from ADR-005 stayed up for about 54 minutes and
+then disconnected at the first TLS rekey:
+
+```text
+02:12:07 INFO UDP send exception: send: Message too long
+02:20:18 INFO Transport Error: TLS Keying material export error
+02:20:18 INFO DISCONNECTED
+02:20:18 ERROR client_connect_unhandled_exception
+```
+
+The server had pushed `protocol-flags [cc-exit] [dyn-tls-crypt]`. On the first
+rekey, Core tried to export keying material for dynamic tls-crypt, but the
+pinned mbedTLS backend returns `false` from `export_keying_material()`. The
+resulting `KEY_EXPANSION_ERROR` is not handled by `ClientConnect`, so it became
+`client_connect_unhandled_exception`. See ADR-006 for the full trace.
+
+Fix: the CMake build now generates a patched copy of the pinned
+`openvpn/ssl/proto.hpp` that only advertises `IV_PROTO_DYN_TLS_CRYPT` when
+`SSLLib::SSLAPI::support_key_material_export()` is true. The submodule commit is
+unchanged. `EngineEventMapper` also translates the two raw failure strings into
+actionable messages.
+
+Verification performed on this branch:
+
+```bash
+./gradlew --no-daemon \
+  :app:testDebugUnitTest \
+  :app:lintDebug \
+  :app:assembleDebug \
+  :app:assembleDebugAndroidTest
+```
+
+Result: **pass**. 88 unit tests in 13 suites, 0 failures; lint 0 errors; debug
+APK and instrumentation-test APK built. The native target was also built
+explicitly with `:app:externalNativeBuildDebug` for `arm64-v8a` and `x86_64`,
+and the generated header was inspected to confirm the gated advertisement:
+
+```cpp
+if (SSLLib::SSLAPI::support_key_material_export()
+    && CryptoAlgs::lookup("SHA256") != CryptoAlgs::NONE
+    && CryptoAlgs::lookup("AES-256-CTR") != CryptoAlgs::NONE)
+    iv_proto |= IV_PROTO_DYN_TLS_CRYPT;
+```
+
+Manual checks still required (a live rekey is time-based and was not run here):
+
+- [ ] On a controlled server, set `reneg-sec 60` (or wait for the provider's
+      rekey interval) and keep the tunnel connected past the rekey. Expect no
+      `TLS Keying material export error`, no `client_connect_unhandled_exception`,
+      and no disconnect.
+- [ ] In Diagnostics, confirm this build no longer logs
+      `control channel: dynamic tls-crypt enabled` for a server that offers it;
+      the session rekeys using the configured control-channel protection.
+- [ ] Reconnect and repeat once to rule out a one-off network transition.
+
+Residual notes: the `UDP send exception: send: Message too long` line is a
+separate, non-fatal send failure; it is not the cause of the disconnect and was
+left as a diagnostic observation. A server that requires dynamic tls-crypt
+cannot complete a rekey with the pinned mbedTLS backend; the app now negotiates
+without advertising it instead of failing after the session is established.
+
 ## What is verified vs. not verified
 
 | Check | Status |

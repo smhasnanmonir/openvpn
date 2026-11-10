@@ -180,8 +180,8 @@ profiles that need a key passphrase.
 
 ### Compatibility settings
 
-Two `ClientAPI::Config` / import-time compatibility settings keep older provider
-profiles connectable with the pinned 3.9 core:
+Compatibility settings keep older provider profiles connectable with the pinned
+3.9 core:
 
 - `Config.compressionMode = "asym"` (set in `native_bridge.cpp`). Core's default
   is `"no"`, which raises `COMPRESS_ERROR` when a server pushes LZO asymmetric
@@ -195,6 +195,16 @@ profiles connectable with the pinned 3.9 core:
   earlier app versions work after an update. This is profile normalization in
   the app, not a core API; Core still parses and validates the modified profile
   (see `docs/profile-import.md`).
+- Dynamic tls-crypt is only advertised when the TLS backend can export keying
+  material. Core 3.9 advertises `IV_PROTO_DYN_TLS_CRYPT` unconditionally, but
+  the pinned mbedTLS backend returns `false` from
+  `export_keying_material()`. A server would then enable dynamic tls-crypt and
+  the first rekey would abort with `KEY_EXPANSION_ERROR` /
+  `client_connect_unhandled_exception`. The build generates a patched copy of
+  `openvpn/ssl/proto.hpp` at configure time (the submodule commit is unchanged)
+  that gates the advertisement on
+  `SSLLib::SSLAPI::support_key_material_export()`, mirroring the existing
+  `IV_PROTO_TLS_KEY_EXPORT` guard. See ADR-006.
 
 ### Events
 
@@ -279,6 +289,11 @@ plus the submodule.
   app sets `compressionMode = "asym"` so providers that push asymmetric
   server-to-client LZO compression still work instead of failing right after
   `CONNECTED` with `COMPRESS_ERROR`; see ADR-005.
+- **Dynamic tls-crypt:** not advertised on the mbedTLS build because the pinned
+  Core 3.9 mbedTLS backend cannot export keying material. Servers fall back to
+  the control-channel protection used for the initial handshake; a server that
+  requires dynamic tls-crypt cannot complete a rekey with this build. See
+  ADR-006.
 - **DCO** is not enabled for Android; packet processing uses the core's TUN
   path.
 - **`tunPersist`** is false; TUN is recreated per connection.
