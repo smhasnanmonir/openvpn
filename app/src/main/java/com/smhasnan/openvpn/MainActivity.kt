@@ -28,7 +28,7 @@ import java.util.concurrent.Executor
 class MainActivity : FragmentActivity() {
     private enum class BiometricAction { UNLOCK, ENABLE_LOCK, DISABLE_LOCK }
 
-    private val executor: Executor = ContextCompat.getMainExecutor(this)
+    private val executor: Executor by lazy { ContextCompat.getMainExecutor(this) }
     private lateinit var biometricPrompt: BiometricPrompt
     private var pendingAction = BiometricAction.UNLOCK
 
