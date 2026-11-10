@@ -2,6 +2,33 @@
 
 All notable changes to this project are documented here.
 
+## [1.1.1] - 2026-11-10
+
+### Fixed
+
+- Provider profiles that pin only legacy (non-ECDHE) TLS 1.2 cipher suites now
+  import and connect to servers that offer TLS 1.3 only. Such a `tls-cipher`
+  pin made the TLS handshake stall until the connection timeout even with valid
+  credentials, with no authentication error. The importer now drops a
+  legacy-only `tls-cipher` directive, re-validates the profile, and logs the
+  adaptation to diagnostics. Pins containing an ECDHE suite are kept and
+  certificate verification is unchanged (ADR-005).
+- Connections no longer fail right after `CONNECTED` when a server pushes
+  asymmetric (server-to-client) LZO compression. The native bridge now sets
+  `compressionMode = "asym"`, so providers that require it stay connected while
+  symmetric compression remains refused (ADR-005).
+- Connection failures are no longer swallowed. OpenVPN Core's fatal timeout
+  events (`CONNECTION_TIMEOUT`, `INACTIVE_TIMEOUT`, `TLS_VERSION_MIN`) carry no
+  event text, so diagnostics recorded nothing for them and the core's trailing
+  `DISCONNECTED` event then cleared the transient error, leaving a clean
+  "inactive" state with no explanation. Those events now map to explicit,
+  actionable messages, fatal events always produce an ERROR log line, and a
+  `DISCONNECTED` / `SESSION_FINISHED` event no longer downgrades a real
+  `ERROR`/`AUTH_FAILED` state. A `DISCONNECTED` event during CONNECTING or
+  RECONNECTING also no longer makes the UI look idle while the engine is still
+  retrying. Adds `VpnController` state-machine tests and `EngineEventMapper`
+  cases.
+
 ## [1.1.0] - 2026-11-10
 
 ### Changed

@@ -189,12 +189,53 @@ Commands and results:
   makes the on-device importer test fail; the JVM unit tests still pass, so that
   branch is guarded only by the instrumentation test.
 
-Not verified: a live TLS/auth handshake against the provider (no credentials are
-available in this environment). The certificate-less connect path is verified by
-reading pinned Core 3.9 source
-(`externalPki_ = clientCertEnabled_ && is_external_pki(options)` and
-`set_local_cert_enabled(pcc.clientCertEnabled() && !disable_client_cert)`), not by
-a live session.
+Not verified in that run: a live TLS/auth handshake against the provider (no
+credentials were available for that session). A later session verified provider
+connectivity with real credentials once the provider-compatibility fixes in
+ADR-005 were applied; see "Provider connection compatibility (2026-11-10)" below.
+
+## Provider connection compatibility (2026-11-10)
+
+Context: real provider profiles (an NCVPN `groupedServerList` export with the
+user's real credentials) still did not connect after the import and UI fixes.
+Two independent causes were found and fixed (ADR-005): legacy-only `tls-cipher`
+pins that prevent TLS 1.3 negotiation, and OpenVPN Core's default compression
+policy rejecting the provider's server-to-client LZO-ASYM push right after
+`CONNECTED`. The failure-reporting defect (silent timeouts) was fixed as well.
+
+Environment: Windows host, JDK 17.0.20, Gradle 8.11.1, NDK 27.2.12479018,
+`x86_64`, Android 16 (API 36) x86_64 emulator, real provider credentials.
+
+Results on the fixed debug build:
+
+- **Import normalization:** importing the unmodified original profile logged
+  `Profile import: removed a legacy-only tls-cipher pin so the server can
+  negotiate TLS 1.3.` The stored profile was re-validated by Core.
+- **TLS:** the same profile then negotiated `TLS1-3-AES-256-GCM-SHA384`,
+  authenticated, and brought up the tunnel:
+  `CONNECTED: …@fra-a42.vpn.wlvpn.com:1194 (69.16.145.14) via /UDP on
+  tun/172.21.90.116/ gw=[172.21.90.1/] mtu=1500`.
+- **Compression:** `LZO-ASYM … asym=1` from the server is now accepted; no
+  `COMPRESS_ERROR` / transport error followed `CONNECTED`, and the Errors filter
+  stayed empty.
+- **Stability and traffic:** two independent nodes (US and DE) stayed
+  `PROTECTED` beyond two minutes with the timer and byte counters increasing;
+  `tun0` carried the pushed address, default route, and pushed DNS; a TCP
+  connection through the tunnel succeeded; the in-app public-IP check reported
+  the provider egress address (`69.16.145.16` vs local `103.175.51.184`).
+  Disconnect removed `tun0`, stopped the service, and returned to `INACTIVE`.
+- **Failure reporting:** before the logging fix a failing attempt ended as
+  `INACTIVE` with empty diagnostics. Now fatal engine events produce an ERROR
+  banner and ERROR log row (e.g. "Connection timed out before the TLS handshake
+  completed…", "server pushed compression settings that are not allowed…"), and
+  a following `DISCONNECTED` event no longer erases the error.
+- **Automated:** 52 JVM unit tests pass (new `VpnController` state-machine tests
+  and `tls-cipher` policy tests); lint reports 0 errors.
+
+Residual notes: the in-app public-IP check timed out once through one US node
+(transient provider/DNS quirk; it worked on the DE node and tunnel traffic was
+independently confirmed); provider byte counters were small (KB) but tunnel data
+flow and egress-IP change were confirmed.
 
 ## What is verified vs. not verified
 
@@ -202,7 +243,7 @@ a live session.
 |---|---|
 | Debug APK builds | ✅ verified |
 | Both ABI native libraries build | ✅ verified |
-| Unit tests (36) | ✅ verified |
+| Unit tests (52) | ✅ verified |
 | Android lint | ✅ verified |
 | Signed, minified release APK | ✅ verified |
 | R8 keeps JNI callbacks | ✅ verified by dexdump |
@@ -211,6 +252,7 @@ a live session.
 | App launches on device | ✅ verified on API 30 x86_64 emulator |
 | Profile import pipeline | ✅ verified on emulator |
 | Real OpenVPN TLS handshake | ✅ verified against controlled OpenVPN 2.7 server |
+| Provider connect with real credentials (TLS 1.3 + LZO-ASYM) | ✅ verified on API 36 x86_64 emulator (US + DE nodes, egress IP change) |
 | TUN establishment (`10.8.0.2`, MTU 1500) | ✅ verified |
 | Packets traverse tunnel (ICMP to `10.8.0.1`) | ✅ verified (3/3) |
 | Disconnect cleanup (TUN route removed) | ✅ verified |
@@ -321,4 +363,5 @@ With a controlled server and known destinations:
 - IPv6/DNS behavior under real carrier networks.
 - App-lock lifecycle behavior on multi-window/foldable devices.
 - Proxy profiles (HTTP proxy path only; HTTPS/PAC unsupported).
-- Compression profiles (legacy compression may be rejected by design).
+- Symmetric compression profiles remain unsupported by policy; asymmetric
+  server-to-client LZO (as pushed by some providers) is accepted.
