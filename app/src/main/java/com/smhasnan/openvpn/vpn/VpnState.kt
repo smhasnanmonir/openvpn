@@ -1,5 +1,7 @@
 package com.smhasnan.openvpn.vpn
 
+import androidx.compose.runtime.Immutable
+
 enum class VpnState {
     DISCONNECTED,
     PREPARING,
@@ -23,6 +25,7 @@ enum class VpnState {
         get() = isActive || this == AUTH_FAILED || this == ERROR
 }
 
+@Immutable
 data class TrafficStats(
     val bytesIn: Long = 0L,
     val bytesOut: Long = 0L,
@@ -33,6 +36,7 @@ data class TrafficStats(
         get() = bytesIn > 0L || bytesOut > 0L
 }
 
+@Immutable
 data class ConnectionDetails(
     val serverHost: String? = null,
     val serverPort: String? = null,
@@ -51,6 +55,7 @@ data class ConnectionDetails(
         }
 }
 
+@Immutable
 data class VpnSnapshot(
     val state: VpnState = VpnState.DISCONNECTED,
     val profileId: String? = null,
@@ -67,6 +72,7 @@ data class VpnSnapshot(
             state == VpnState.DISCONNECTING
 }
 
+@Immutable
 data class LogEntry(
     val timestampMillis: Long,
     val level: LogLevel,
@@ -81,6 +87,7 @@ enum class LogLevel { INFO, WARN, ERROR }
  * an address from an earlier tunnel/direct path can never be mistaken for the
  * current result while a retry is in flight.
  */
+@Immutable
 data class PublicIpState(
     val loading: Boolean = false,
     val ip: String? = null,
