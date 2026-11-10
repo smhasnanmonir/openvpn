@@ -319,7 +319,7 @@ Verification performed on this branch:
   :app:assembleDebugAndroidTest
 ```
 
-Result: **pass**. 88 unit tests in 13 suites, 0 failures; lint 0 errors; debug
+Result: **pass**. 89 unit tests in 13 suites, 0 failures; lint 0 errors; debug
 APK and instrumentation-test APK built. The native target was also built
 explicitly with `:app:externalNativeBuildDebug` for `arm64-v8a` and `x86_64`,
 and the generated header was inspected to confirm the gated advertisement:
