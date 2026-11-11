@@ -636,10 +636,33 @@ were used. The profile is a CA-based client profile with no client certificate.
   removed: the app refused the connection with the explicit
   “The VPN server did not provide a usable DNS resolver…” message and never
   reported `PROTECTED`. Restoring the pushes made the next connection succeed.
+- **Release build / R8 smoke test** — the **signed, minified `v1.4.0` APK**
+  downloaded from the GitHub Release was installed on the emulator (replacing
+  the debug build), reported `versionName=1.4.0` / `versionCode=57`, imported
+  the same profile, connected to the live server (`PROTECTED`, `ping
+  192.168.255.1` **3/3**, server log `AES-256-GCM`), and showed moving traffic
+  counters. This verifies that R8 shrinking/obfuscation, the release signing
+  config and the native library all work together, not only in the debug build.
 - **Supply chain** — `scripts/generate-sbom.sh` (181 components) scanned with
   `ghcr.io/google/osv-scanner:v2.7.1 scan source -L …sbom.cdx.json` →
   **No issues found** (exit 0). Gitleaks v8.28.0 with `.gitleaks.toml` over the
-  full git history (96 commits) → **no leaks found**.
+  full git history → **no leaks found**. The published release APK was
+  re-downloaded and re-checked locally: certificate SHA-256
+  `834d2a58…00c9c` (v1.3.0 key), `versionName=1.4.0`, `versionCode=57`,
+  `arm64-v8a` + `x86_64`, not debuggable, 16 KB alignment OK, and both asset
+  hashes matched the GitHub release digests.
+
+**16 KB page-size emulator attempt (2026-11-11):** the
+`system-images;android-36.1;google_apis_ps16k;x86_64` image was installed and
+a dedicated AVD was booted. The guest ran Android 16 / API 36 with
+`getconf PAGE_SIZE` = **16384** (16 KB kernel confirmed). However the app could
+not be launched: SurfaceFlinger repeatedly aborted with
+`Fatal signal 6 (SIGABRT) … RegionSampling`, restarting `system_server`
+(SwiftShader/`swiftshader_indirect` and host-GPU modes both affected), so
+`MainActivity` never stayed up. The 16 KB **runtime launch of the app therefore
+remains unverified on this host**; the packaged APK (debug and signed release)
+is gated for 16 KB alignment in CI, and both the emulator image and AVD were
+removed after the attempt.
 
 **Not verified for this PR (device/server required):**
 
@@ -648,10 +671,11 @@ were used. The profile is a CA-based client profile with no client certificate.
 - Split-tunnel packet capture, captive-portal pause/resume, Always-on/lockdown,
   process death/reboot (the emulator has no root to kill the foreground
   service), lifecycle backoff on a real network.
-- **16 KB page-size device/emulator launch.** The packaged APK passes the
-  16 KB alignment gate (CI + local), and the CI release job now gates the
-  signed APK too, but a `google_apis_ps16k` system image could not be installed
-  on this host (disk space), so the app was not launched on a 16 KB kernel.
+- **16 KB device/emulator app launch.** The `ps16k` image boots (PAGE_SIZE
+  16384 verified), but the emulator's SurfaceFlinger/SwiftShader stack crashes
+  in a loop on this host, so the app could not be smoke-tested there. The APK
+  alignment gate passes in CI for both debug and signed release artifacts; a
+  physical 16 KB device or a different emulator host is still required.
 - Physical-device leak matrix rows; see `docs/security/leak-test-matrix.md`.
 - MASVS/ASVS assessment and independent penetration test (not performed).
 
