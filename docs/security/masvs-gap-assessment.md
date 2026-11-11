@@ -107,7 +107,7 @@ review for future features.
 
 | Control | Status | Evidence / gap |
 |---|---|---|
-| CODE-1: current platform/SDK | ✅ | `compileSdk/targetSdk 35`, `minSdk 26`, JDK 17, AGP 8.7.3, Gradle 8.11.1, NDK 27.2.12479018. |
+| CODE-1: current platform/SDK | ✅ | `compileSdk 37`/`targetSdk 35`, `minSdk 26`, JDK 17, AGP 9.4.1, Gradle 9.6.0, Kotlin 2.4.21, NDK 27.2.12479018. |
 | CODE-2: up-to-date components | 🟡 | OpenVPN Core/mbedTLS/asio/fmt/jsoncpp/lz4 are pinned and documented; SBOM + osv-scanner + Dependabot + advisory SLA added (#13). Residual: core updates are manual and can lag advisories; the SLA (critical 7 / high 30 / medium 90 days) now makes that explicit. |
 | CODE-3: safe APIs / memory safety | 🟡 | Native code is a narrow JNI bridge around the pinned core; no unsafe deserialization; JSON parsing via jsoncpp/org.json. Known pre-existing native handle race on `connect()`/stats vs close is tracked under #14/lifecycle; the resume path is locked. |
 | CODE-4: error handling | ✅ / 🟡 | Fatal engine events surface actionable errors; a `DISCONNECTED` event no longer erases errors; bounded retry ends with an explicit unprotected-traffic error. Residual: third-party log text sanitisation is defence-in-depth, not a guarantee. |

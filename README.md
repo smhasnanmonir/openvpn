@@ -213,15 +213,17 @@ certificate digest documented in [docs/testing.md](docs/testing.md).
 ### Requirements
 
 - JDK 17
-- Android SDK platform 35 and Build Tools 35.0.0
+- Android SDK platform 37 (installed as `platforms;android-37.0`) and Build
+  Tools 36.0.0 (AGP default) + 37.0.0 (release-gate `apksigner`/`aapt2`)
 - Android NDK `27.2.12479018`
 - CMake `3.22.1` (from Android SDK)
 - Ninja
 - Network access for the first dependency fetch
 
-Pinned native dependencies are downloaded by
-`scripts/fetch-native-deps.sh` and verified with SHA-256. OpenVPN Core is a git
-submodule pinned to an immutable commit.
+The build uses the Gradle wrapper (`gradlew`, Gradle 9.6.0), AGP 9.4.1 and the
+Kotlin 2.4.21 compiler bundled with AGP's built-in Kotlin support. Pinned native
+dependencies are downloaded by `scripts/fetch-native-deps.sh` and verified with
+SHA-256. OpenVPN Core is a git submodule pinned to an immutable commit.
 
 ### Commands
 
@@ -258,7 +260,7 @@ keyPassword=...
 Then:
 
 ```bash
-./gradlew :app:assembleRelease :app:lintRelease :app:testReleaseUnitTest
+./gradlew :app:assembleRelease :app:lintRelease
 ```
 
 See [docs/release.md](docs/release.md) for CI signing secrets and GitHub
@@ -266,7 +268,7 @@ Release publishing.
 
 ## Android compatibility and policy notes
 
-- `minSdk 26`, `targetSdk 35`, `compileSdk 35`.
+- `minSdk 26`, `targetSdk 35`, `compileSdk 37`.
 - The foreground service declares
   `android:foregroundServiceType="specialUse"` with the required
   `FOREGROUND_SERVICE_SPECIAL_USE` permission and
