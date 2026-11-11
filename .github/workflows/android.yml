@@ -80,6 +80,24 @@ jobs:
             :app:assembleDebug \
             :app:assembleDebugAndroidTest
 
+      - name: Verify 16 KB page-size alignment
+        run: |
+          export ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          export ANDROID_NDK_HOME="${ANDROID_NDK_HOME:-$ANDROID_SDK_ROOT/ndk/27.2.12479018}"
+          bash scripts/check-16kb-alignment.sh app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Generate SBOM (CycloneDX)
+        run: |
+          export ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          bash scripts/generate-sbom.sh --output build/sbom/sbom.cdx.json
+
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: build/sbom/sbom.cdx.json
+          if-no-files-found: error
+
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
@@ -140,9 +158,17 @@ jobs:
           name: app-release
           path: release
 
+      - name: Download SBOM
+        uses: actions/download-artifact@v4
+        with:
+          name: sbom
+          path: release
+
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
-          files: release/app-release.apk
+          files: |
+            release/app-release.apk
+            release/sbom.cdx.json
           generate_release_notes: true
           fail_on_unmatched_files: true
