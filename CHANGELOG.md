@@ -4,7 +4,131 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+### Security
+
+- **Fail-closed tunnel DNS (#8).** New "Require tunnel DNS" setting, default
+  **on**: if the server pushes no usable resolver (IPv4 or IPv6) and no
+  validated fallback is configured, the connection is refused with an explicit
+  error instead of silently falling back to the underlying network's DNS. An
+  optional fallback DNS list (IPv4/IPv6 literals, validated and normalised) is
+  installed through the tunnel when the server pushes none; diagnostics state
+  when the fallback is used (ADR-008).
+- **Strict server-trust policy (#11).** Profiles must contain a CA, a
+  `peer-fingerprint`, or a legacy `tls-remote` directive; profiles with no
+  server-trust material are rejected at import with an actionable message and
+  refused at connect time (including profiles stored by older app versions).
+  Re-importing a same-name profile with different CA material now produces an
+  explicit CA-change warning. Revocation is documented as server/PKI-side; the
+  client does not claim CRL/OCSP support (ADR-009).
+- **Compression and cipher policy modes (#19).** New explicit settings:
+  Compression = Compatibility (default, accepts server→client LZO-ASYM per
+  ADR-005) or Strict (`compressionMode="no"`; a real server-pushed compressor
+  fails loudly via a generated Core header patch instead of silently degrading;
+  compression stubs that carry no payload are still accepted);
+  Cipher = Profile (default) or AEAD-only (connect-time `pull-filter` accepts
+  AES-256-GCM/AES-192-GCM/AES-128-GCM/ChaCha20-Poly1305 and rejects a non-AEAD cipher with
+  a clear error). The active policy is reported in diagnostics (ADR-010).
+- **MTU control (#10).** New TUN MTU setting: Auto (server-pushed; default),
+  1500, 1400, or 1280. A fixed value appends `pull-filter ignore tun-mtu` and
+  `tun-mtu N` to the connect-time configuration so the server-pushed value
+  cannot override it; the chosen MTU is shown in connection details. No
+  automatic reconnect loop.
+- **Always-on/lockdown readiness (#9).** Settings shows a best-effort
+  readiness card based on hidden `Settings.Secure` keys
+  (`always_on_vpn_app`/`always_on_vpn_lockdown`; UNKNOWN when unreadable), with
+  explanations and a link to system VPN settings. The app never claims a
+  guaranteed kill switch when lockdown is off.
+- **Security documentation and assurance (#15, #21).** Complete privacy policy,
+  Play `VpnService`/Data-safety/`QUERY_ALL_PACKAGES`/specialUse disclosure
+  answers, release compliance checklist, leak-test matrix, and a MASVS v2
+  gap assessment with an ASVS note for a future backend; the independent
+  penetration-test requirement is recorded. These are documentation/process
+  deliverables, not claims of device verification.
+
+### Reliability
+
+- **Desired-state connection lifecycle (#14).** The profile the user asked to
+  connect is persisted separately from the native session; Always-on/system
+  restarts (`START_STICKY`) restore a **fresh** native session from the stored
+  profile and credentials, never a stale pointer. Retries keep the PR #5
+  budget (5 s base, 60 s cap, 6 attempts, then an explicit "traffic is no
+  longer protected" error) and now use **bounded jitter**. Force-stop, reboot
+  (no boot receiver; Always-on handles boot), pre-first-unlock, and another-VPN
+  takeover behaviour are documented (ADR-013).
+- **Captive-portal pause (#18).** Best-effort detection via
+  `NET_CAPABILITY_CAPTIVE_PORTAL`/`NET_CAPABILITY_VALIDATED`, an explicit
+  "Pause VPN to sign in" action, an honest paused state that says traffic is
+  NOT protected, auto-resume once the network validates, and a manual sign-in
+  URL (`http://connectivitycheck.gstatic.com/generate_204`) as the fallback.
+  Detection never pauses the tunnel silently (ADR-012).
+
+### Features
+
+- **Per-app split tunneling (#17).** Settings mode Off (default) / Include
+  selected / Exclude selected, with a per-app picker screen. Home and Settings
+  show "N apps bypass the tunnel" warnings; bypassing apps are explicitly not
+  protected. An include configuration with no usable app is refused
+  (fail-closed), uninstalled packages are filtered safely, and changes apply on
+  the next connection (the UI offers Reconnect). The app declares the
+  Play-restricted `QUERY_ALL_PACKAGES` permission because Android 11+ package
+  visibility otherwise prevents listing/applying arbitrary packages; the list
+  is used locally only, never transmitted or logged (ADR-011).
+- **Backend and iOS scope decisions (#16, #20).** ADR-014 with
+  `docs/architecture/backend-control-plane.md` (control/data-plane split,
+  account/MFA/token/device model, offline-root PKI, gateway/DNS/API hardening,
+  monitoring/incident response, ownership/runbook placeholders) and ADR-015 with
+  `docs/architecture/ios-plan.md` (NEPacketTunnelProvider, Keychain sharing,
+  `includeAllNetworks`, on-demand rules, captive portals, App Store 5.4
+  requirements, core pin process). Both explicitly out of scope/not
+  implemented; no backend or iOS code was added.
+
+### Changed — intentional behaviour changes
+
+- **"Require tunnel DNS" defaults ON** (fail-closed): profiles whose server
+  pushes no usable DNS can no longer connect silently; they fail with an
+  explicit error unless the user configures a fallback or disables the setting
+  (the latter is documented as a leak risk).
+- **Strict trust rejects profiles without CA/peer-fingerprint/`tls-remote`.**
+  This is a deliberate verification tightening; profiles imported by older
+  versions are re-checked at connect. Re-export with the provider CA if a
+  profile lacks trust material.
+- **Compatibility compression remains the default** (LZO-ASYM), not silently
+  hardened: strict compression and AEAD-only ciphers are explicit opt-ins for
+  users who accept the provider-compatibility trade-off.
+- **Split tunneling is off by default**; existing users keep full-tunnel
+  routing. Enabling it is explicit and permanently warned.
+- MTU Auto remains the default; a fixed MTU is an explicit diagnostic/workaround
+  control. The Always-on readiness card is informational and does not make the
+  app a kill switch.
+
+### CI and supply chain (#12, #13)
+
+- CI now fails the build if any packaged native library `.so` `LOAD` segment
+  has `p_align < 0x4000` (16 KB) or if `zipalign -c -P 16 4` fails
+  (`scripts/check-16kb-alignment.sh`, run against the built debug APK). Native
+  hardening keeps `-fstack-protector-strong`, `-D_FORTIFY_SOURCE=2`,
+  `-Wl,-z,relro`, `-Wl,-z,now` and `-Wl,-z,max-page-size=16384`.
+- CycloneDX SBOM generation (`scripts/generate-sbom.sh`) for every build and
+  release (app version, OpenVPN Core 3.9 `10c6a56`, mbedTLS/asio/fmt/jsoncpp/
+  lz4 versions, NDK `27.2.12479018`, Gradle runtime classpath); uploaded as a CI
+  artifact and attached to GitHub releases.
+- New `.github/workflows/security.yml` (scheduled + push to `main` +
+  `workflow_dispatch`, **not** a required PR check, `permissions: contents:
+  read`) runs osv-scanner on the SBOM and gitleaks on the repository.
+  `.github/dependabot.yml` tracks Gradle and GitHub Actions. `SECURITY.md` now
+  defines patch deadlines (critical 7 / high 30 / medium 90 days), the advisory
+  owner, monitoring cadence for OpenVPN Core/mbedTLS, and the emergency-release
+  process; `docs/compliance/release-checklist.md` covers signing, no debug
+  logging, privacy policy URL, policy/store disclosures, SBOM and advisories.
+
 ### Fixed
+
+- PR #5 fixes (merged): dynamic tls-crypt rekey crash (#4), post-connect
+  timeout/retry (#6), swapped traffic counters (#7), Always-on start handling,
+  `remote-cert-tls server` enforcement, metered inheritance, 16 KB alignment,
+  MTU/error diagnostics; plus the review-fix pass (bounded retries, rekey hint,
+  Always-on lifecycle, inline `<peer-fingerprint>`). See the PR #5 entries
+  below.
 
 - Long-lived sessions no longer disconnect at the first rekey when the server
   offers dynamic tls-crypt on the mbedTLS build. OpenVPN Core 3.9 advertised

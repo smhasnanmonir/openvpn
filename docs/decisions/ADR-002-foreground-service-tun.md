@@ -17,6 +17,10 @@ visible foreground notification and a TUN interface.
   `FOREGROUND_SERVICE_SPECIAL_USE` and
   `PROPERTY_SPECIAL_USE_FGS_SUBTYPE="vpn"`.
 - Use `START_NOT_STICKY`; never restore stale fd/native pointers.
+  *(Partially superseded by ADR-013: the service returns `START_STICKY` for the
+  Android Always-on/system-restart path and restores the persisted **desired
+  connected profile** with a fresh native session. Stale fds/pointers are still
+  never restored.)*
 - `VpnService.Builder` creates TUN; `ParcelFileDescriptor.detachFd()` transfers
   ownership to OpenVPN Core, which performs all packet I/O and closes the fd.
 - `tun_builder_persist()` returns false; a new TUN is created per session.

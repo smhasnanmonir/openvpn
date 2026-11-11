@@ -63,14 +63,30 @@ Verify:
 2. install JDK 17, Android SDK 35, NDK 27.2.12479018, CMake 3.22.1;
 3. restore/build checksum-verified native dependencies;
 4. run unit tests, lint, debug APK build, instrumentation-test APK build;
-5. upload debug artifacts.
+5. verify 16 KB page-size compatibility on the built APK
+   (`bash scripts/check-16kb-alignment.sh`: every packaged `.so` `LOAD` segment
+   `p_align >= 0x4000`, plus `zipalign -c -P 16 4`);
+6. generate the CycloneDX SBOM (`bash scripts/generate-sbom.sh`) and upload it
+   as an artifact;
+7. upload debug artifacts.
 
 On a `v*` tag it additionally:
 
 1. decodes the release keystore from secrets;
 2. builds a minified signed release APK;
 3. verifies the APK signature;
-4. creates a GitHub Release and uploads the APK.
+4. creates a GitHub Release and uploads the signed APK **and the SBOM**
+   (`sbom.cdx.json`).
+
+`.github/workflows/security.yml` is **not** a required PR check. It runs on
+pushes to `main`, on a weekly schedule, and by manual dispatch, with
+`permissions: contents: read`:
+
+- generates the SBOM and scans it with `osv-scanner` for known advisories;
+- runs `gitleaks` secret scanning over the repository history.
+
+`.github/dependabot.yml` opens weekly update PRs for Gradle dependencies and
+GitHub Actions.
 
 ### Required repository secrets
 
@@ -124,23 +140,36 @@ Caveats:
   codes vary by run. Set it explicitly for store uploads.
 - Signing timestamps/certificates are not reproducible; verify the same
   certificate digest rather than expecting identical APK bytes.
-- A future full verification should add Gradle dependency verification
-  metadata and a signed SBOM.
+- A CycloneDX SBOM is generated per build/release (`scripts/generate-sbom.sh`),
+  but it is not digitally signed; artifact signing/provenance (for example
+  Sigstore/cosign or GitHub artifact attestations) is a follow-up. Gradle
+  dependency verification metadata is also still a follow-up.
 
 ## Release checklist
 
+The full compliance checklist (signing, no debug logging, privacy policy URL,
+Play declarations, SBOM, advisories) is
+[`docs/compliance/release-checklist.md`](compliance/release-checklist.md). The
+build-specific minimum is:
+
 - [ ] `./scripts/build-native-deps.sh arm64-v8a x86_64` passes.
 - [ ] `./gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug` passes.
+- [ ] 16 KB gate passes:
+      `bash scripts/check-16kb-alignment.sh app/build/outputs/apk/debug/app-debug.apk`.
+- [ ] SBOM generated (`bash scripts/generate-sbom.sh`) and valid JSON.
 - [ ] `./gradlew :app:assembleRelease :app:testReleaseUnitTest :app:lintRelease` passes.
 - [ ] `apksigner verify` passes.
 - [ ] JNI callback names still present in R8 output (`dexdump`).
 - [ ] Device test matrix in `docs/testing.md` completed, with results recorded.
 - [ ] License/notices reviewed for the pinned core revision (AGPL-3.0-only at 3.9).
 - [ ] Corresponding source published (the GitHub repository + submodule).
-- [ ] No keystore, passwords, real profiles, or logs committed.
-- [ ] Version/tag and release notes updated.
-- [ ] Play Console foreground-service `specialUse`/`vpn` declaration if
-      distributing via Play (required for that FGS type).
+- [ ] No keystore, passwords, real profiles, or logs committed (secret scan).
+- [ ] Version/tag and release notes updated (include intentional behaviour changes).
+- [ ] Privacy policy published at a public URL; Play `VpnService`,
+      `QUERY_ALL_PACKAGES`/specialUse declarations, and Data safety answers
+      re-checked if distributing via Play.
+- [ ] No untriaged critical/high advisory against the SBOM; patch SLA in
+      `SECURITY.md` respected.
 
 ## Installation
 

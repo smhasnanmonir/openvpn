@@ -539,13 +539,77 @@ CMake logic applies to every ABI; `arm64-v8a` was verified before this pass.
 Device manual checks above remain required because the retry/Always-on
 behaviour needs a real device.
 
+## Security/reliability backlog PR (#8–#21): verification status
+
+This section records what changed in the backlog PR and what is actually
+verified for it. Device-level leak tests are **not** claimed; the full matrix is
+in `docs/security/leak-test-matrix.md`.
+
+**Automated (JVM/CI):**
+
+- New pure-Kotlin policy objects have JVM tests: `DnsLeakPolicy` (IPv4/IPv6
+  normalization, fail-closed decisions, fallback validation), `ProfileTrustPolicy`
+  (CA/peer-fingerprint/`tls-remote` acceptance, no-trust rejection, CA-change),
+  `MtuPolicy` (fixed-MTU config transform), `ProfileSecurityPolicy`
+  (AEAD-only `pull-filter` transform and policy text), `SplitTunnelPolicy`
+  (zero-app refusal, stale-package filtering, warning text),
+  `CaptivePortalPolicy` (capability interpretation, paused-state honesty), and
+  the jittered `PauseRetryPolicy`.
+- CI (`android.yml`) runs `:app:testDebugUnitTest`, lint, debug/instrumentation
+  APK builds, the packaged-APK **16 KB alignment gate**
+  (`scripts/check-16kb-alignment.sh`: every `.so` `LOAD` p_align ≥ 0x4000 and
+  `zipalign -c -P 16 4`), and SBOM generation/upload. The scheduled
+  `security.yml` runs osv-scanner on the SBOM and gitleaks.
+
+**Local merge-candidate verification (Lead, 2026-11-11, x86_64 on this host):**
+
+- `:app:testDebugUnitTest` — **225 tests / 24 suites / 0 failures / 0 errors**
+  (baseline `main`: 110/16).
+- `:app:lintDebug` — **0 errors, 45 warnings** (warning count unchanged from
+  `main`); `abortOnError=true`.
+- `:app:assembleDebug -Pabis=x86_64` and `:app:assembleDebugAndroidTest` —
+  **BUILD SUCCESSFUL**.
+- `:app:externalNativeBuildDebug -Pabis=x86_64` — **BUILD SUCCESSFUL**: the
+  generated `proto.hpp` contains all three patches, and `libnativevpn.so` has
+  LOAD `p_align=0x4000`, GNU_RELRO + `BIND_NOW`, and stack-canary/FORTIFY
+  imports (`__stack_chk_fail`, `__memcpy_chk`, …).
+- `scripts/check-16kb-alignment.sh app/build/outputs/apk/debug/app-debug.apk` —
+  **PASS** (both packaged `.so` files, every LOAD p_align `0x4000`;
+  `zipalign -c -P 16 4` OK).
+- `arm64-v8a` is built and gated by CI only: this host has no arm64 native-deps
+  tree, so the local native evidence above is x86_64.
+
+**Locally verified for this documentation/CI change (docs-ci):**
+
+- `bash -n` passes for both new scripts.
+- `.github/workflows/*.yml` and `.github/dependabot.yml` parse as YAML.
+- `scripts/check-16kb-alignment.sh` correctly **passes** the built
+  `x86_64/libnativevpn.so` (`LOAD p_align=0x4000`) and correctly **fails** an
+  older/stale packaged APK whose `libnativevpn.so` has `p_align=0x1000`; it also
+  passes `zipalign -c -P 16 4` on the current APK. The CI-built fresh APK is
+  expected to pass both; that run is the authoritative gate.
+- `scripts/generate-sbom.sh` produced a valid CycloneDX 1.5 JSON with 181
+  components (OpenVPN Core 3.9 `10c6a56`, mbedTLS 3.6.2, asio 1.24.0,
+  fmt 10.2.1, jsoncpp 1.9.6, lz4 1.9.4, NDK 27.2.12479018, and the Gradle
+  `releaseRuntimeClasspath` Maven coordinates).
+
+**Not verified for this PR (device/server required):**
+
+- DNS fail-closed and fallback routing (needs a controlled server with/without
+  pushed DNS).
+- Split-tunnel packet capture, captive-portal pause/resume, Always-on/lockdown,
+  16 KB device launch, process death/reboot, lifecycle backoff on a real
+  network.
+- Physical-device leak matrix rows; see `docs/security/leak-test-matrix.md`.
+- MASVS/ASVS assessment and independent penetration test (not performed).
+
 ## What is verified vs. not verified
 
 | Check | Status |
 |---|---|
 | Debug APK builds | ✅ verified |
 | Both ABI native libraries build | ✅ verified |
-| Unit tests (110) | ✅ verified |
+| Unit tests (225 on the backlog branch; 110 on PR #5) | ✅ verified |
 | Android lint | ✅ verified |
 | Signed, minified release APK | ✅ verified |
 | R8 keeps JNI callbacks | ✅ verified by dexdump |
@@ -567,6 +631,11 @@ behaviour needs a real device.
 | Notification action tap / QS tile | ❌ not run (notification actions rendered) |
 | Fingerprint lock on real hardware | ❌ not run |
 | TCP profile | ❌ not run |
+
+The table above describes the PR #5 code base. The security/reliability backlog
+PR adds new JVM policy tests, the 16 KB CI gate, and SBOM generation; see the
+section above and `docs/security/leak-test-matrix.md` for its verification
+status.
 
 ## Emulator/server evidence
 
