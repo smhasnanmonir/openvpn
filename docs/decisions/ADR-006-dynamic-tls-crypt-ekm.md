@@ -70,11 +70,16 @@ to enable a feature that the mbedTLS build cannot complete at rekey time.
        iv_proto |= IV_PROTO_DYN_TLS_CRYPT;
    ```
 
-   This mirrors the existing `IV_PROTO_TLS_KEY_EXPORT` guard. The submodule
-   commit stays pinned at `10c6a56cb17fd015a2d24953c3c42145bbcdea58`; the patch
-   is a build artifact, not a submodule change. If the pinned upstream text no
-   longer matches, the build fails with a message pointing at
-   `peer_info_string()`.
+   This mirrors the existing `IV_PROTO_TLS_KEY_EXPORT` guard. The same patched
+   header also rejects a server-pushed `dyn-tls-crypt` flag when the backend
+   cannot export keying material, so a non-conforming server produces a clear
+   `Problem accepting protocol-flags: server requires dynamic tls-crypt …`
+   error instead of the delayed `KEY_EXPANSION_ERROR` crash at the first rekey.
+   The submodule commit stays pinned at
+   `10c6a56cb17fd015a2d24953c3c42145bbcdea58`; the patch is a build artifact,
+   not a submodule change. If either pinned upstream text no longer matches, the
+   build fails with a message pointing at `peer_info_string()` or
+   `parse_pushed_protocol_flags()`.
 
 2. **Explain the failure in the app.** `EngineEventMapper` maps
    `client_connect_unhandled_exception` and `TLS Keying material export error`
@@ -93,7 +98,9 @@ to enable a feature that the mbedTLS build cannot complete at rekey time.
   `KEY_EXPANSION_ERROR`.
 - A server that *requires* dynamic tls-crypt cannot be used with this build;
   it could not complete a rekey with the pinned mbedTLS backend either, so this
-  turns a delayed disconnect into an honest capability negotiation.
+  turns a delayed disconnect into an honest capability negotiation. A server
+  that ignores the missing advertisement and pushes the flag anyway is rejected
+  during the server-push parse with the server-push error above.
 - The patch is tied to the pinned Core 3.9 header. When upgrading Core, check
   whether upstream has added the same guard (or a working mbedTLS exporter); if
   so, remove the generated patch. A future alternative is to upgrade mbedTLS to

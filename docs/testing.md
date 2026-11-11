@@ -305,9 +305,14 @@ resulting `KEY_EXPANSION_ERROR` is not handled by `ClientConnect`, so it became
 
 Fix: the CMake build now generates a patched copy of the pinned
 `openvpn/ssl/proto.hpp` that only advertises `IV_PROTO_DYN_TLS_CRYPT` when
-`SSLLib::SSLAPI::support_key_material_export()` is true. The submodule commit is
-unchanged. `EngineEventMapper` also translates the two raw failure strings into
-actionable messages.
+`SSLLib::SSLAPI::support_key_material_export()` is true, and rejects a
+server-pushed `dyn-tls-crypt` flag with a clear server-push error when the
+backend cannot export keying material. The submodule commit is unchanged.
+`EngineEventMapper` also translates the raw failure into an actionable message;
+because Core reports the rekey failure as the generic
+`client_connect_unhandled_exception` text, the service supplies the
+keying-material hint from the preceding engine log line instead of relying on
+the event text alone.
 
 Verification performed on this branch:
 
@@ -319,7 +324,7 @@ Verification performed on this branch:
   :app:assembleDebugAndroidTest
 ```
 
-Result: **pass**. 103 unit tests in 15 suites, 0 failures; lint 0 errors; debug
+Result: **pass**. 110 unit tests in 16 suites, 0 failures; lint 0 errors; debug
 APK and instrumentation-test APK built. The native target was also built
 explicitly with `:app:externalNativeBuildDebug` for `arm64-v8a` and `x86_64`,
 and the generated header was inspected to confirm the gated advertisement:
@@ -359,9 +364,11 @@ Two follow-up problems were reported on the same branch:
    `pause_on_connection_timeout()` unconditionally, so Core emitted a fatal
    `CONNECTION_TIMEOUT` instead of pausing. `OvpnClient` now returns `true` only
    after the client has reached `CONNECTED`; `PAUSE`/`RESUME` map to
-   `RECONNECTING`, and the service retries with `OpenVPNClient::resume()` every
-   5 seconds while the network is online. An initial connection timeout still
-   produces the existing error. See ADR-007.
+   `RECONNECTING`, and the service retries with `OpenVPNClient::resume()` while
+   the network is online. The retry is bounded by `PauseRetryPolicy`: 5 s
+   initial delay, doubling to 60 s, at most six attempts per connected session,
+   then an explicit "traffic is no longer protected" error. An initial
+   connection timeout still produces the existing error. See ADR-007.
 2. Download and upload were swapped on Home. Core's TUN counters are named from
    the tunnel device's perspective: `TUN_BYTES_OUT` is written to the TUN
    (server → client, download) and `TUN_BYTES_IN` is read from it (client →
@@ -380,11 +387,12 @@ Verification performed on this branch:
   :app:assembleDebugAndroidTest
 ```
 
-Result: **pass**. 103 unit tests in 15 suites, 0 failures; lint 0 errors; debug
+Result: **pass**. 110 unit tests in 16 suites, 0 failures; lint 0 errors; debug
 APK and instrumentation-test APK built. `:app:externalNativeBuildDebug` built
 `arm64-v8a` and `x86_64`. New coverage: `NativeEngineStatsTest` pins the
 download/upload direction (including the transport fallback and partial TUN
-counters) and `EngineEventMapperTest` covers `PAUSE`/`RESUME`.
+counters) and `EngineEventMapperTest` covers `PAUSE`/`RESUME`, and `PauseRetryPolicyTest`
+pins the backoff/cap of the bounded resume policy.
 
 Manual checks still required:
 
@@ -393,15 +401,23 @@ Manual checks still required:
       without a fatal timeout banner.
 - [ ] While reconnecting, tap Disconnect: the service stops and no retry loop
       remains.
+- [ ] Leave the session paused against a reachable network but an unreachable
+      server: after six bounded attempts the app must show the explicit
+      "could not reconnect / traffic is no longer protected" error and stop
+      claiming "Reconnecting".
+- [ ] Confirm that while paused (no tunnel) the notification/state do not claim
+      the device is protected; on a non-lockdown Always-on device Android
+      restores the underlying network as soon as the TUN descriptor closes.
 - [ ] Download a known file and confirm the Home "Download" counter grows;
       upload a file and confirm "Upload" grows.
 - [ ] Confirm a first connection to an unreachable server still ends with the
       actionable connection-timeout error.
 
-Residual risk: a paused session tears down the old TUN before the resumed
-client establishes a new one. The app keeps `tunPersist = false` by design, so
-this is a short gap during reconnect rather than a persistent tunnel; see
-ADR-007.
+Residual risk: a paused session tears down the old TUN, and Android restores
+the underlying network, so traffic is unprotected until a resume attempt
+succeeds. Retries are bounded and end with an explicit error; the app keeps
+`tunPersist = false` by design, so there is no persistent tunnel during the
+pause. See ADR-007.
 
 ## Security hardening pass (2026-11-10)
 
@@ -440,19 +456,27 @@ Verification:
   :app:assembleDebugAndroidTest
 ```
 
-Result: **pass**. 103 unit tests in 15 suites, 0 failures; lint 0 errors; debug
+Result: **pass**. 110 unit tests in 16 suites, 0 failures; lint 0 errors; debug
 and instrumentation-test APKs built. `:app:externalNativeBuildDebug` built
 `arm64-v8a` and `x86_64`; `readelf -l` on the arm64 library shows `LOAD`
 alignment `0x4000`.
 
 Manual checks still required:
 
-- [ ] Enable Android Always-on VPN for this app, force-stop it, and confirm the
-      tunnel comes back with the selected profile.
+- [ ] Enable Android Always-on VPN for this app. Remove the process with
+      `adb shell am kill com.smhasnan.openvpn` (not force-stop, which disables
+      background starts until the app is opened again) and confirm the system
+      starts the service with `SERVICE_INTERFACE` and the tunnel comes back with
+      the persisted selected profile. Repeat after reboot; before the first
+      unlock the service cannot restore the tunnel because the app is not
+      direct-boot aware, so unlock first and confirm it comes up afterwards.
 - [ ] Enable lockdown, disable all networks, and confirm protected traffic is
       blocked.
 - [ ] Connect to a server whose certificate is signed by the profile CA but is a
-      client certificate; confirm `CERT_VERIFY_FAIL` and no connection.
+      client certificate; confirm `CERT_VERIFY_FAIL` and no connection. Also
+      test a CA-signed server certificate without `serverAuth` EKU: this now
+      fails by design (the deliberate compatibility break noted in the
+      changelog), and the failure message should name the server-auth usage.
 - [ ] Connect on a metered network and confirm the VPN is reported as metered.
 - [ ] Install and connect on a 16 KB page-size Android 15 device/emulator.
 - [ ] Reproduce an MTU black hole and confirm the new Diagnostics hint appears.
@@ -462,13 +486,66 @@ certificate validation, split tunneling, captive portals, process-death/backoff,
 supply-chain monitoring, privacy/store compliance, leak-test matrix) are tracked
 in `docs/security-readiness.md` and issues #8–#21.
 
+## Review-fix pass: bounded pause retries, rekey hint, Always-on lifecycle (2026-11-11)
+
+Follow-up from the PR #5 review. Changes in this pass:
+
+- Paused-session retries are bounded by `PauseRetryPolicy` (5 s initial delay,
+  doubling to 60 s, at most six attempts per connected session), then the
+  session fails visibly with a "traffic is no longer protected" error. The loop
+  no longer trusts the JNI `resume()` return value (Core's `resume()` is a
+  `void` API that silently ignores a non-paused/halted session), and a `PAUSE`
+  racing a user disconnect is ignored.
+- The rekey explanation is derived from the engine's keying-material log line,
+  because Core reports only `client_connect_unhandled_exception` in the event
+  payload; the specific message is now reachable and covered by a test using the
+  real payload.
+- The generated Core header also rejects a server-pushed `dyn-tls-crypt` with a
+  clear server-push error; the patch text is line-ending normalised and the
+  generated file is only rewritten when its content changes.
+- `<peer-fingerprint>` inline blocks are recognised as an explicit
+  server-certificate policy.
+- Always-on starts use the explicitly persisted profile id (no silent
+  substitution), return `START_STICKY` for the system start, and honour a
+  null-intent redelivery only when `isAlwaysOn`; a start racing teardown is
+  ignored.
+- `CancellationException` is rethrown instead of becoming a spurious global
+  error after a user disconnect; the resume job is joined before the native
+  session is closed; the MTU warning is logged once per connection.
+- Import failure after appending `remote-cert-tls server` now carries the
+  engine detail, and dedupe accepts the pre-hardening hash so an upgrade
+  re-import is not duplicated.
+- Documentation: ADR-006/ADR-007 corrected (unprotected pause window, bounded
+  retry cadence, server-push rejection); the `serverAuth` EKU compatibility
+  break is called out in the changelog; Always-on/process-death readiness
+  statuses downgraded to partial and the force-stop manual check replaced.
+
+Verification performed on this branch:
+
+```bash
+./gradlew --no-daemon \
+  :app:testDebugUnitTest \
+  :app:lintDebug \
+  :app:assembleDebug \
+  :app:externalNativeBuildDebug -Pabis=x86_64
+```
+
+Result: **pass**. 110 unit tests in 16 suites, 0 failures (new
+`PauseRetryPolicyTest`, a rekey-hint test using the real event payload, and an
+inline `<peer-fingerprint>` test); lint 0 errors; debug APK built. The `x86_64`
+native target rebuilt the patched header and compiled it; the generated header
+contains both the advertisement guard and the server-push rejection. The same
+CMake logic applies to every ABI; `arm64-v8a` was verified before this pass.
+Device manual checks above remain required because the retry/Always-on
+behaviour needs a real device.
+
 ## What is verified vs. not verified
 
 | Check | Status |
 |---|---|
 | Debug APK builds | ✅ verified |
 | Both ABI native libraries build | ✅ verified |
-| Unit tests (52) | ✅ verified |
+| Unit tests (110) | ✅ verified |
 | Android lint | ✅ verified |
 | Signed, minified release APK | ✅ verified |
 | R8 keeps JNI callbacks | ✅ verified by dexdump |

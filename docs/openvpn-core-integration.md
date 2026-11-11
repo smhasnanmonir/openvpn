@@ -204,11 +204,16 @@ Compatibility settings keep older provider profiles connectable with the pinned
   `openvpn/ssl/proto.hpp` at configure time (the submodule commit is unchanged)
   that gates the advertisement on
   `SSLLib::SSLAPI::support_key_material_export()`, mirroring the existing
-  `IV_PROTO_TLS_KEY_EXPORT` guard. See ADR-006.
+  `IV_PROTO_TLS_KEY_EXPORT` guard, and rejects a server-pushed
+  `dyn-tls-crypt` flag with a clear `process_server_push_error` when the
+  backend cannot export keying material. See ADR-006.
 - For CA-based profiles that do not already specify `remote-cert-*`,
-  `tls-remote`, or `peer-fingerprint`, the app appends
-  `remote-cert-tls server` at import and connect time. This prevents a client
-  certificate signed by the same CA from being accepted as the server.
+  `tls-remote`, or `peer-fingerprint` (including the `<peer-fingerprint>`
+  inline block), the app appends `remote-cert-tls server` at import and
+  connect time. This prevents a client certificate signed by the same CA from
+  being accepted as the server. A server certificate that lacks the
+  `serverAuth` extended key usage now fails verification by design: this is a
+  deliberate compatibility trade-off and is called out in the changelog.
 
 ### Events
 
@@ -221,9 +226,12 @@ and `SESSION_FINISHED` based on `OpenVPNClient` return statuses.
 `pause_on_connection_timeout()` returns `true` only after this client has
 reached `CONNECTED`. A post-connect timeout then becomes Core's `PAUSE` state
 instead of a fatal `CONNECTION_TIMEOUT`; the service maps `PAUSE`/`RESUME` to
-`RECONNECTING` and retries through `OpenVPNClient::resume()` every 5 seconds
-while the network is online. An initial connection timeout still returns
-`false` and is shown as an error. See ADR-007.
+`RECONNECTING` and asks Core to resume through `OpenVPNClient::resume()` with a
+bounded, backed-off retry (`PauseRetryPolicy`: 5 s initial delay, doubling to
+60 s, at most six attempts per connected session) while the network is online.
+An initial connection timeout still returns `false` and is shown as an error,
+and an exhausted retry budget fails visibly with a "traffic is no longer
+protected" message. See ADR-007.
 
 ## Native dependency build
 
@@ -306,9 +314,11 @@ plus the submodule.
   requires dynamic tls-crypt cannot complete a rekey with this build. See
   ADR-006.
 - **Paused reconnect gap:** a post-connect connection timeout enters Core's
-  `PAUSE` state, which tears down the old TUN. The service retries every 5
-  seconds and creates a fresh TUN on resume; `tunPersist` remains disabled by
-  design. See ADR-007.
+  `PAUSE` state, which tears down the old TUN. Android then restores the
+  underlying network, so traffic is not protected until a resume attempt
+  succeeds; the service retries with backoff and a cap, then surfaces an
+  explicit "not protected" error. A fresh TUN is created on resume;
+  `tunPersist` remains disabled by design. See ADR-007.
 - **DCO** is not enabled for Android; packet processing uses the core's TUN
   path.
 - **`tunPersist`** is false; TUN is recreated per connection.

@@ -23,7 +23,16 @@ private, and avoid overstating what Android and the server guarantee.
 - **Server certificate usage.** For CA-based profiles that do not already
   specify a server-certificate policy, the app appends `remote-cert-tls server`
   at import and connect. This prevents a client certificate signed by the same
-  CA from being accepted as the server (see `ProfileImportPolicy`).
+  CA from being accepted as the server (see `ProfileImportPolicy`). A
+  consequence is a deliberate compatibility break: a server certificate without
+  the `serverAuth` extended key usage (or with incompatible key usage) now fails
+  `CERT_VERIFY_FAIL` instead of being accepted on CA trust alone.
+- **Paused reconnect window.** After a post-connect connection timeout Core
+  pauses the session and closes the TUN; Android restores the underlying
+  network, so traffic is not protected until a resume attempt succeeds. The
+  service retries with exponential backoff and gives up with an explicit
+  "traffic is no longer protected" error after a bounded number of attempts.
+  Always-on lockdown keeps its system-level block during this window.
 - **System-level kill switch support.** The service handles Android's
   Always-on/lockdown start action (`VpnService.SERVICE_INTERFACE`) and connects
   the persisted selected profile with stored credentials.
@@ -67,8 +76,10 @@ The app:
   provider instead of silently bypassing them;
 - appends `remote-cert-tls server` for CA-based profiles that do not already
   specify an explicit server-certificate policy (`remote-cert-*`, `tls-remote`,
-  or `peer-fingerprint`), both at import and connect time; a server certificate
-  without the serverAuth extended key usage now fails verification by design;
+  `peer-fingerprint`, or an inline `<peer-fingerprint>` block), both at import
+  and connect time; a server certificate without the serverAuth extended key
+  usage now fails verification by design and is documented as a breaking
+  compatibility change;
 - for certificate-less username/password profiles only, adds Core's
   `setenv CLIENT_CERT 0` directive (no client certificate is sent); the server
   certificate, CA, `remote-cert-tls server`, and `verify-x509-name` checks are
