@@ -14,8 +14,9 @@
 # Environment:
 #   APP_VERSION, APP_VERSION_CODE, GITHUB_SHA, GRADLE_BIN, GRADLE_ARGS
 #
-# Requires bash, python3 (JSON assembly), git, and (unless --skip-gradle) the
-# Gradle wrapper plus an installed Android SDK. CI runs it after the build.
+# Requires bash, python3 (JSON assembly), git, and (unless --skip-gradle)
+# Gradle (an installed `gradle` command or the project wrapper) plus an
+# installed Android SDK. CI runs it after the build.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -24,7 +25,19 @@ cd "$ROOT"
 OUTPUT="build/sbom/sbom.cdx.json"
 SKIP_GRADLE=0
 DEPS_FILE=""
-GRADLE="${GRADLE_BIN:-./gradlew}"
+
+# Resolution order: explicit GRADLE_BIN, then a Gradle installation already on
+# PATH (CI's setup-gradle provides one), then the project wrapper. The wrapper
+# is last on purpose: in network-restricted CI it would try to download the
+# Gradle distribution, while an installed `gradle` command works offline from
+# the warm dependency cache.
+if [[ -n "${GRADLE_BIN:-}" ]]; then
+  GRADLE="$GRADLE_BIN"
+elif command -v gradle >/dev/null 2>&1; then
+  GRADLE="gradle"
+else
+  GRADLE="./gradlew"
+fi
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
