@@ -1,0 +1,14 @@
+# Configuration for GitHub automatically generated release notes.
+# Schema: https://docs.github.com/en/repositories/releasing-projects-on-github/automatically-generated-release-notes
+#
+# Keep Dependabot out of generated release notes. Its PRs are maintenance-only,
+# and without this exclusion a Dependabot PR merged after v1.4.0 would be listed
+# as a "New Contributor" in the next release's generated notes.
+#
+# Only the bot author is excluded on purpose: excluding the `dependencies` label
+# would also hide human-authored dependency and security fixes that belong in
+# the release notes.
+changelog:
+  exclude:
+    authors:
+      - "dependabot[bot]"
