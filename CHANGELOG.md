@@ -2,7 +2,7 @@
 
 All notable changes to this project are documented here.
 
-## [Unreleased]
+## [1.4.0] - 2026-11-11
 
 ### Security
 
@@ -13,21 +13,30 @@ All notable changes to this project are documented here.
   optional fallback DNS list (IPv4/IPv6 literals, validated and normalised) is
   installed through the tunnel when the server pushes none; diagnostics state
   when the fallback is used (ADR-008).
-- **Strict server-trust policy (#11).** Profiles must contain a CA, a
-  `peer-fingerprint`, or a legacy `tls-remote` directive; profiles with no
-  server-trust material are rejected at import with an actionable message and
-  refused at connect time (including profiles stored by older app versions).
-  Re-importing a same-name profile with different CA material now produces an
-  explicit CA-change warning. Revocation is documented as server/PKI-side; the
-  client does not claim CRL/OCSP support (ADR-009).
+- **Strict server-trust policy (#11).** Profiles must contain a CA or a legacy
+  `tls-remote` directive; profiles with no server-trust material are rejected
+  at import with an actionable message and refused at connect time (including
+  profiles stored by older app versions). A `peer-fingerprint` is recorded and
+  reported, but is **not** accepted as an anchor: the pinned mbedTLS backend
+  does not enforce pins, so fingerprint-only profiles are now rejected with an
+  explicit "pin cannot be enforced" message (CA + pin profiles are allowed with
+  an import warning). This is an intentional breaking change for
+  fingerprint-only profiles. Re-importing a same-name profile with different CA
+  material now produces an explicit CA-change warning. Revocation is documented
+  as server/PKI-side; the client does not claim CRL/OCSP support (ADR-009).
 - **Compression and cipher policy modes (#19).** New explicit settings:
   Compression = Compatibility (default, accepts server→client LZO-ASYM per
-  ADR-005) or Strict (`compressionMode="no"`; a real server-pushed compressor
-  fails loudly via a generated Core header patch instead of silently degrading;
-  compression stubs that carry no payload are still accepted);
-  Cipher = Profile (default) or AEAD-only (connect-time `pull-filter` accepts
-  AES-256-GCM/AES-192-GCM/AES-128-GCM/ChaCha20-Poly1305 and rejects a non-AEAD cipher with
-  a clear error). The active policy is reported in diagnostics (ADR-010).
+  ADR-005) or Strict (local compression directives stripped, every
+  server-pushed `comp-lzo`/`compress` option refused through quoted
+  `pull-filter` lines, with a generated Core header patch as defence in depth;
+  a compression-requiring provider must use Compatibility);
+  Cipher = Profile (default) or AEAD-only (connect-time quoted `pull-filter`
+  accepts the AEAD ciphers and rejects a non-AEAD pushed cipher with a clear
+  error; profiles with their own cipher filters are stripped, and an AEAD
+  fallback cipher is added when the profile pins none so Core's BF-CBC default
+  cannot be negotiated). The active policy is reported in diagnostics
+  (ADR-010). Both modes were exercised end to end against a live OpenVPN 2.4
+  server.
 - **MTU control (#10).** New TUN MTU setting: Auto (server-pushed; default),
   1500, 1400, or 1280. A fixed value appends `pull-filter ignore tun-mtu` and
   `tun-mtu N` to the connect-time configuration so the server-pushed value
@@ -45,8 +54,50 @@ All notable changes to this project are documented here.
   penetration-test requirement is recorded. These are documentation/process
   deliverables, not claims of device verification.
 
+### Fixed
+
+- **AEAD-only cipher policy could not connect.** The generated `pull-filter`
+  lines had four tokens (`pull-filter accept cipher AES-256-GCM`) instead of
+  the three-token quoting Core requires, so OpenVPN Core rejected the
+  configuration as a malformed option before connecting. Lines are now
+  `pull-filter accept "cipher AES-256-GCM"` / `pull-filter reject "cipher"`,
+  profile cipher filters are removed so the policy cannot be overridden, and an
+  AEAD fallback `cipher` is added when the profile has none. Verified live: an
+  AEAD-only session negotiated AES-256-GCM against a real server.
+- **Strict compression only covered the Core patch, not pushed options or
+  profile-local directives.** Strict mode now strips local `compress`/`comp-lzo`
+  and rejects every pushed `comp-lzo` (except `comp-lzo no`) and `compress`
+  option, including stubs. Verified live: strict mode shows an explicit policy
+  error against an LZO-pushing server, while compatibility still connects.
+- **Peer-fingerprint-only profiles were accepted although the mbedTLS backend
+  ignores pins.** They are now rejected with an explicit message (see the
+  Security section); CA + pin profiles keep working with a warning.
+- **DNS resolvers of an unrouted address family were accepted.** A pushed IPv6
+  resolver on an IPv4-only tunnel, or an IPv4 resolver on an IPv6-only tunnel,
+  is now dropped; if that leaves no usable resolver the connection fails closed
+  instead of restoring the underlying family's DNS.
+- **Split-tunnel allow-list failures could fail open.** If adding an allowed
+  application to the TUN builder fails, the connection is now aborted (error
+  state, no TUN) instead of silently letting that app bypass the tunnel.
+  Excluded-app failures are logged as a count only (no package names).
+- **Native session teardown race.** All short-lived JNI session calls
+  (`resume`, `reconnect`, `disconnect`, stats/connection-info, challenge
+  response, `isRunning`) and `close()` now share the same handle lock, so a
+  late call cannot use a session handle after `close()` destroys it. `connect()`
+  remains unlocked by design (it creates the session).
+- **Portal-pause state could stick after an explicit disconnect.** An explicit
+  Disconnect now clears `pausedForPortal`; only the portal-pause teardown keeps
+  it. The UI no longer pre-marks the pause before the service confirms it.
+
 ### Reliability
 
+- **Legacy `topology net30` servers are supported.** The TUN adapter previously
+  rejected the net30 address passed by OpenVPN servers that keep the legacy
+  default topology, so the connection failed with
+  `tun_builder_add_address IPv4 failed (topology net30)`. The client now applies
+  the /30 client address to the Android TUN (routes are installed as before);
+  verified end to end against a local OpenVPN 2.4 server using net30. No change
+  for `topology subnet`/full-tunnel behaviour.
 - **Desired-state connection lifecycle (#14).** The profile the user asked to
   connect is persisted separately from the native session; Always-on/system
   restarts (`START_STICKY`) restore a **fresh** native session from the stored

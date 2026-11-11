@@ -1,4 +1,4 @@
-﻿package com.smhasnan.openvpn.vpn
+package com.smhasnan.openvpn.vpn
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -197,5 +197,68 @@ class DnsLeakPolicyTest {
     @Test
     fun refusedDecisionIsNotEqualToOneWithResolvers() {
         assertFalse(DnsLeakPolicy.decide(emptyList(), true, emptyList()) is Decision.TunnelDns)
+    }
+
+    @Test
+    fun dropsResolversOfFamiliesTheTunnelDoesNotRoute() {
+        val decision = DnsLeakPolicy.decide(
+            pushedServers = listOf("10.8.0.1", "2001:db8::1"),
+            requireTunnelDns = true,
+            fallbackServers = emptyList(),
+            tunnelIpv4 = true,
+            tunnelIpv6 = false,
+        )
+        assertEquals(
+            Decision.TunnelDns(
+                servers = listOf("10.8.0.1"),
+                usedFallback = false,
+                filteredServers = listOf("2001:db8::1"),
+            ),
+            decision,
+        )
+    }
+
+    @Test
+    fun usesFallbackOfARoutedFamilyWhenThePushOnlyHasTheForeignFamily() {
+        val decision = DnsLeakPolicy.decide(
+            pushedServers = listOf("2001:db8::1"),
+            requireTunnelDns = true,
+            fallbackServers = listOf("9.9.9.9"),
+            tunnelIpv4 = true,
+            tunnelIpv6 = false,
+        )
+        assertEquals(
+            Decision.TunnelDns(
+                servers = listOf("9.9.9.9"),
+                usedFallback = true,
+                filteredServers = listOf("2001:db8::1"),
+            ),
+            decision,
+        )
+    }
+
+    @Test
+    fun refusesWhenOnlyForeignFamilyResolversExist() {
+        val decision = DnsLeakPolicy.decide(
+            pushedServers = listOf("2001:db8::1"),
+            requireTunnelDns = true,
+            fallbackServers = listOf("2001:db8::2"),
+            tunnelIpv4 = true,
+            tunnelIpv6 = false,
+        )
+        assertTrue(decision is Decision.Refused)
+        assertTrue((decision as Decision.Refused).reason.contains("address family", ignoreCase = true))
+    }
+
+    @Test
+    fun ipv6OnlyTunnelDropsIpv4Resolvers() {
+        val decision = DnsLeakPolicy.decide(
+            pushedServers = listOf("10.8.0.1"),
+            requireTunnelDns = true,
+            fallbackServers = emptyList(),
+            tunnelIpv4 = false,
+            tunnelIpv6 = true,
+        )
+        assertTrue(decision is Decision.Refused)
     }
 }

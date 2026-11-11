@@ -47,53 +47,60 @@ class NativeSession(private val callbacks: NativeCallbacks) : AutoCloseable {
         )
     }
 
-    fun respondToChallenge(response: String): Boolean {
+    fun respondToChallenge(response: String): Boolean = synchronized(handleLock) {
         val current = handle.get()
-        return current != 0L && OpenVpnNative.respondToChallenge(current, response)
+        current != 0L && OpenVpnNative.respondToChallenge(current, response)
     }
 
-    fun reconnect(seconds: Int = 0): Boolean {
+    fun reconnect(seconds: Int = 0): Boolean = synchronized(handleLock) {
         val current = handle.get()
-        return current != 0L && OpenVpnNative.reconnect(current, seconds)
+        current != 0L && OpenVpnNative.reconnect(current, seconds)
     }
 
     /**
      * Guards the native handle against [close] freeing it between the read and
-     * the JNI call. Only [resume] takes this lock: it is called from the service
-     * retry coroutine, never from a native engine callback, so [close] can hold
-     * it across `destroySession` (which joins the engine worker) without risking
-     * a callback deadlock.
+     * the JNI call. All short handle calls take this lock, so [close] waits for an
+     * in-flight stats/challenge/disconnect call before `destroySession` frees the
+     * native session. Engine callbacks never call back into NativeSession, so
+     * holding the lock across the destroy join cannot deadlock.
+     *
+     * `connect()` is intentionally not locked: it blocks for the duration of the
+     * session attempt and must not block `disconnect()`/`close()`. Destroying the
+     * session while `connect()` runs is handled by the native bridge, which stops
+     * and joins the engine worker before deleting the session.
      */
-    private val resumeCloseLock = Any()
+    private val handleLock = Any()
 
-    fun resume(): Boolean = synchronized(resumeCloseLock) {
+    fun resume(): Boolean = synchronized(handleLock) {
         val current = handle.get()
         current != 0L && OpenVpnNative.resume(current)
     }
 
-    fun disconnect() {
+    fun disconnect() = synchronized(handleLock) {
         val current = handle.get()
-        if (current != 0L) OpenVpnNative.disconnect(current)
+        if (current != 0L) {
+            runCatching { OpenVpnNative.disconnect(current) }
+        }
     }
 
-    fun statsJson(): String? {
+    fun statsJson(): String? = synchronized(handleLock) {
         val current = handle.get()
-        return if (current == 0L) null else OpenVpnNative.getStats(current)
+        if (current == 0L) null else runCatching { OpenVpnNative.getStats(current) }.getOrNull()
     }
 
-    fun connectionInfoJson(): String? {
+    fun connectionInfoJson(): String? = synchronized(handleLock) {
         val current = handle.get()
-        return if (current == 0L) null else OpenVpnNative.getConnectionInfo(current)
+        if (current == 0L) null else runCatching { OpenVpnNative.getConnectionInfo(current) }.getOrNull()
     }
 
-    fun isRunning(): Boolean {
+    fun isRunning(): Boolean = synchronized(handleLock) {
         val current = handle.get()
-        return current != 0L && OpenVpnNative.isRunning(current)
+        current != 0L && runCatching { OpenVpnNative.isRunning(current) }.getOrDefault(false)
     }
 
     override fun close() {
         if (closed.compareAndSet(0L, 1L)) {
-            synchronized(resumeCloseLock) {
+            synchronized(handleLock) {
                 val current = handle.getAndSet(0L)
                 if (current != 0L) OpenVpnNative.destroySession(current)
             }

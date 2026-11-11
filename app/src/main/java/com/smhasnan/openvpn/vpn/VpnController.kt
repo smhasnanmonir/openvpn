@@ -200,7 +200,14 @@ object VpnController {
         }
     }
 
-    fun disconnected() {
+    /**
+     * Publishes a clean disconnected state.
+     *
+     * @param keepPaused true for the captive-portal pause teardown, which must
+     *   keep the "paused for sign-in" banner so the user can resume. Every other
+     *   end of the session clears the paused flag.
+     */
+    fun disconnected(keepPaused: Boolean = false) {
         _snapshot.update {
             it.copy(
                 state = VpnState.DISCONNECTED,
@@ -209,6 +216,7 @@ object VpnController {
                 challenge = null,
                 stats = TrafficStats(),
                 details = ConnectionDetails(),
+                pausedForPortal = if (keepPaused) it.pausedForPortal else false,
             )
         }
     }

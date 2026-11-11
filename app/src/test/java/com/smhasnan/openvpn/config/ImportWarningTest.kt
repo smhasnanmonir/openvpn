@@ -40,7 +40,7 @@ class ImportWarningTest {
         val message = (decision as ImportDecision.Rejected).message
         assertTrue(message.isNotBlank())
         assertTrue(message.contains("CA", ignoreCase = true))
-        assertTrue(message.contains("fingerprint", ignoreCase = true))
+        assertTrue(message.contains("pin", ignoreCase = true))
     }
 
     @Test

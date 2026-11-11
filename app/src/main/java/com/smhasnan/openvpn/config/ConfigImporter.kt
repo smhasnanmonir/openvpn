@@ -177,9 +177,10 @@ class ConfigImporter(
                 metadata = certEval.metadata.copy(clientCertNotRequired = metadata.clientCertNotRequired)
             }
 
-            // Fail closed when the profile carries no server trust anchor (a CA,
-            // a peer-fingerprint pin, or an explicit legacy tls-remote policy).
-            // Without one, OpenVPN cannot authenticate the server at all.
+            // Fail closed when the profile carries no server trust anchor (a CA or
+            // an explicit legacy tls-remote policy). A peer-fingerprint pin alone is
+            // not accepted because the pinned mbedTLS backend ignores it; without a
+            // CA/tls-remote anchor OpenVPN cannot authenticate the server at all.
             when (val trust = ProfileTrustPolicy.validateForImport(content)) {
                 is ImportDecision.Rejected ->
                     return ImportOutcome.Failure(document.name, trust.message)
@@ -215,6 +216,11 @@ class ConfigImporter(
                 warnings += "This profile allows non-AEAD data ciphers " +
                     "(${legacyCiphers.joinToString(", ")}). Switch the cipher policy to the " +
                     "AEAD-only mode to refuse them."
+            }
+            if (ProfileTrustPolicy.hasIgnoredPeerFingerprint(content)) {
+                warnings += "This profile contains a peer-fingerprint pin, but the VPN engine " +
+                    "in this build cannot verify certificate fingerprints, so that pin is " +
+                    "ignored. Server identity is verified through the profile's CA."
             }
             val newCaFingerprint = ProfileTrustPolicy.caFingerprint(content)
             if (newCaFingerprint != null) {

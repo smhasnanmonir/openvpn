@@ -31,14 +31,19 @@ what policy is active.
    `CompressionPolicy` has two values:
    - `COMPATIBILITY` (default): `config.compressionMode = "asym"`, the
      provider-compatible LZO-ASYM behaviour from ADR-005.
-   - `STRICT`: `config.compressionMode = "no"`. The build-time generated Core
-     patch (#3, see `docs/openvpn-core-integration.md`) makes a real
+   - `STRICT`: `config.compressionMode = "no"` **and** the connect-time
+     configuration is hardened in Kotlin: profile-local `compress`/`comp-lzo`
+     directives are stripped, and the transform appends
+     `pull-filter accept "comp-lzo no"`, `pull-filter reject "comp-lzo"` and
+     `pull-filter reject "compress"`. The build-time generated Core patch (#3,
+     see `docs/openvpn-core-integration.md`) additionally makes a real
      server-pushed compressor fail **loudly** with an explicit
      server-push/`COMPRESS_ERROR` instead of silently degrading to asymmetric
-     mode. A compression **stub** (`COMP_STUB`, which carries no compressed
-     payload) is still accepted so stub-pushing providers keep working; only a
-     real compressor is refused. A server that requires compression cannot be
-     used in strict mode; that is the intended outcome, not a bug.
+     mode. The push filters are the first line of defence (they run before Core
+     negotiates) and the Core patch is defence in depth. Strict mode therefore
+     refuses every pushed compression option, including `compress` stubs: a
+     provider that requires compression must be used in Compatibility mode.
+     That is the intended outcome, not a bug.
 2. **Cipher policy setting with a profile default.**
    `CipherPolicy` has two values:
    - `PROFILE` (default): the cipher directives in the profile are used as-is
@@ -46,11 +51,20 @@ what policy is active.
      algorithms itself).
    - `AEAD_ONLY`: the connect-time configuration is transformed to append
      `pull-filter accept "cipher AES-256-GCM"`, `pull-filter accept "cipher
-     AES-128-GCM"`, `pull-filter accept "cipher CHACHA20-POLY1305"` and then
-     `pull-filter reject cipher`. This refuses a server-pushed non-AEAD
-     cipher and forces the AEAD set. A profile that pins a non-AEAD cipher
-     (or a server that only offers one) fails with a clear message rather than
-     negotiating a CBC cipher.
+     AES-192-GCM"`, `pull-filter accept "cipher AES-128-GCM"`,
+     `pull-filter accept "cipher CHACHA20-POLY1305"` and then
+     `pull-filter reject "cipher"`. Each line has exactly three tokens
+     (`pull-filter`, `accept`/`reject`, quoted directive) because OpenVPN Core
+     parses the option as command/action/value — an unquoted four-token line is
+     rejected by Core as a malformed option and the connection never starts.
+     Profile `pull-filter ... cipher ...` lines are removed first so a profile
+     cannot re-allow a CBC cipher ahead of the policy. If the profile has no
+     `cipher` directive at all, the transform also appends a local
+     `cipher AES-256-GCM` for the same reason: without it, Core's BF-CBC
+     fallback would be the negotiated cipher when the server does not push one,
+     and the reject filter alone would not prevent that. A profile that pins a
+     non-AEAD cipher (or a server that only offers one) fails with a clear
+     message rather than negotiating a CBC cipher.
 3. **Diagnostics state the active policy.** The settings screen and the
    connection diagnostics report the selected compression and cipher policy, so
    a user or support engineer can tell why a connection was refused. The
@@ -73,11 +87,18 @@ what policy is active.
 - AEAD-only users get a stronger data channel, at the cost of compatibility
   with old servers/profiles that pin CBC ciphers. The failure message names the
   cipher policy so it is diagnosable.
-- `pull-filter` is evaluated by Core in order; the transform only adds
-  `pull-filter` lines when the profile does not already contain conflicting
-  ones, and it is applied at connect time (not stored), so importing the same
-  profile under a different policy does not require re-import. The exact
-  ordering and quoting are covered by JVM tests on `ProfileSecurityPolicy`.
+- `pull-filter` is evaluated by Core in order. The transform removes profile
+  `pull-filter` lines whose directive matches `cipher` (or `comp-lzo`/
+  `compress` in strict compression mode) so a profile cannot override the
+  selected policy, appends the policy lines last, and is idempotent (applying
+  the transform to already-transformed text yields byte-identical text). It is
+  applied at connect time only (never stored), so switching policy does not
+  require re-import. Exact line format, order, fallback-cipher behaviour and
+  idempotence are covered by JVM tests on `ProfileSecurityPolicy`, and both
+  policies were exercised end to end against a local OpenVPN 2.4 server
+  (AEAD-only connected with a pushed AES-256-GCM; strict refused a pushed
+  `comp-lzo adaptive` with the explicit policy error; compatibility connected
+  through the same server with LZO-ASYM).
 - The generated `proto.hpp` patch is build-time only; no submodule change. If
   upstream moves the compression push-handling text, the build fails and points
   at `parse_pushed_compression()`.

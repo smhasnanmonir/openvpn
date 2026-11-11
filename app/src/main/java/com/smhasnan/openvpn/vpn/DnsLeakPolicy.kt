@@ -1,4 +1,4 @@
-﻿package com.smhasnan.openvpn.vpn
+package com.smhasnan.openvpn.vpn
 
 /**
  * Pure fail-closed DNS policy (#8).
@@ -14,8 +14,19 @@
  * a DNS lookup, so importing or connecting cannot itself create a leak.
  */
 sealed interface Decision {
-    /** The connection may use these resolvers through the tunnel. */
-    data class TunnelDns(val servers: List<String>, val usedFallback: Boolean) : Decision
+    /**
+     * The connection may use these resolvers through the tunnel.
+     *
+     * @param filteredServers resolvers that were dropped because the tunnel does
+     *   not route their address family (for example an IPv6 fallback on an
+     *   IPv4-only profile). They must not be installed on the TUN: Android would
+     *   treat the other family as configured and unblock it, leaking traffic.
+     */
+    data class TunnelDns(
+        val servers: List<String>,
+        val usedFallback: Boolean,
+        val filteredServers: List<String> = emptyList(),
+    ) : Decision
 
     /** The connection must not proceed because it could leak DNS. */
     data class Refused(val reason: String) : Decision
@@ -27,6 +38,18 @@ private const val DNS_REFUSAL_MESSAGE =
         "setting is on. Add a fallback DNS server in Settings, or use a profile whose server " +
         "pushes DNS, then reconnect. The connection was stopped so DNS requests cannot leak " +
         "to the underlying network."
+
+/**
+ * Used when resolvers exist but all of them belong to an address family the
+ * tunnel does not route. Installing one of those would make Android consider the
+ * family configured and unblock it, which is the opposite of fail-closed.
+ */
+private const val DNS_FAMILY_REFUSAL_MESSAGE =
+    "The VPN server or the fallback DNS setting only offered resolvers for an address family " +
+        "this tunnel does not route (for example an IPv6 resolver on an IPv4-only connection). " +
+        "Installing one of those would unblock that family and leak traffic. Add a resolver for " +
+        "an address family the tunnel provides, or reconnect with a profile that routes it, and " +
+        "the connection was stopped so DNS requests cannot leak to the underlying network."
 
 object DnsLeakPolicy {
     /**
@@ -74,27 +97,56 @@ object DnsLeakPolicy {
      *   silently using the underlying network's resolver.
      * @param fallbackServers user-configured resolvers to use through the tunnel
      *   when the server pushes none (see [parseFallback]).
+     * @param tunnelIpv4 whether the TUN is configured with an IPv4 address.
+     * @param tunnelIpv6 whether the TUN is configured with an IPv6 address.
+     *   Resolvers of a family the tunnel does not route are dropped (see
+     *   [Decision.TunnelDns.filteredServers]); an Android TUN with a DNS server
+     *   of a family and no address/route of it unblocks that family.
      */
     fun decide(
         pushedServers: List<String>,
         requireTunnelDns: Boolean,
         fallbackServers: List<String>,
+        tunnelIpv4: Boolean = true,
+        tunnelIpv6: Boolean = true,
     ): Decision {
-        val pushed = pushedServers.asSequence()
+        val pushedAll = pushedServers.asSequence()
             .mapNotNull { normalizeServer(it) }
             .distinct()
             .toList()
-        if (pushed.isNotEmpty()) return Decision.TunnelDns(pushed, usedFallback = false)
+        val pushed = filterByTunnelFamilies(pushedAll, tunnelIpv4, tunnelIpv6)
+        val pushedFiltered = pushedAll - pushed.toSet()
+        if (pushed.isNotEmpty()) {
+            return Decision.TunnelDns(pushed, usedFallback = false, filteredServers = pushedFiltered)
+        }
 
-        val fallback = fallbackServers.asSequence()
+        val fallbackAll = fallbackServers.asSequence()
             .mapNotNull { normalizeServer(it) }
             .distinct()
             .toList()
-        if (fallback.isNotEmpty()) return Decision.TunnelDns(fallback, usedFallback = true)
+        val fallback = filterByTunnelFamilies(fallbackAll, tunnelIpv4, tunnelIpv6)
+        if (fallback.isNotEmpty()) {
+            return Decision.TunnelDns(
+                fallback,
+                usedFallback = true,
+                filteredServers = pushedFiltered + (fallbackAll - fallback.toSet()),
+            )
+        }
 
         if (!requireTunnelDns) return Decision.TunnelDns(emptyList(), usedFallback = false)
-        return Decision.Refused(DNS_REFUSAL_MESSAGE)
+        val refusedBecauseOfFamily = (pushedAll + fallbackAll).isNotEmpty()
+        return Decision.Refused(
+            if (refusedBecauseOfFamily) DNS_FAMILY_REFUSAL_MESSAGE else DNS_REFUSAL_MESSAGE,
+        )
     }
+}
+
+private fun filterByTunnelFamilies(
+    servers: List<String>,
+    tunnelIpv4: Boolean,
+    tunnelIpv6: Boolean,
+): List<String> = servers.filter { server ->
+    if (server.contains(':')) tunnelIpv6 else tunnelIpv4
 }
 
 private val FALLBACK_SEPARATORS = Regex("[,\\s]+")

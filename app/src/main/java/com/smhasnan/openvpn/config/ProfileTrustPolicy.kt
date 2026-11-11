@@ -6,25 +6,33 @@ import java.util.Base64
 /**
  * Pure profile trust policy (#11).
  *
- * OpenVPN only authenticates the server when the profile contains a trust
- * anchor: a CA it verifies the server certificate against, or a
- * `peer-fingerprint` pin of the server certificate. Profiles with neither (for
- * example a bare `remote` + `auth-user-pass` export) can be made to connect to
- * an attacker-controlled server, and the client would have no way to notice.
+ * OpenVPN authenticates the server when the profile contains a trust anchor:
+ * a CA it verifies the server certificate against, or a legacy `tls-remote`
+ * subject pin. Profiles with neither (for example a bare `remote` +
+ * `auth-user-pass` export) can be made to connect to an attacker-controlled
+ * server, and the client would have no way to notice.
  *
- * `tls-remote` is a legacy explicit trust directive: it pins the expected
- * certificate subject, so profiles using it are accepted but not silently
- * upgraded. Comments are ignored everywhere; inline `<ca>` and
- * `<peer-fingerprint>` blocks count as real material.
+ * `peer-fingerprint` is *not* counted as a trust anchor here: the pinned
+ * OpenVPN 3 Core build uses the mbedTLS backend, which has no peer-fingerprint
+ * implementation (only the OpenSSL backend does), so the pin would be silently
+ * ignored. A fingerprint-only profile is rejected with an explicit message; a
+ * profile that also has a CA is accepted, because the CA still authenticates the
+ * server, but the ignored pin is reported as a warning at import time.
+ *
+ * Comments are ignored everywhere; inline `<ca>` blocks count as real material.
  */
 data class TrustMaterial(
     val hasCa: Boolean = false,
     val hasPeerFingerprint: Boolean = false,
     val hasTlsRemote: Boolean = false,
 ) {
-    /** True when the profile gives OpenVPN something to authenticate the server with. */
+    /**
+     * True when the profile gives this client something it can actually verify
+     * the server with. `peer-fingerprint` is deliberately excluded (see class
+     * documentation).
+     */
     val hasServerTrust: Boolean
-        get() = hasCa || hasPeerFingerprint || hasTlsRemote
+        get() = hasCa || hasTlsRemote
 }
 
 sealed interface ImportDecision {
@@ -36,26 +44,42 @@ sealed interface ImportDecision {
 }
 
 private const val NO_SERVER_TRUST_MESSAGE =
-    "This profile has no CA certificate and no peer-fingerprint pin, so the app cannot verify " +
-        "that it is really connecting to the intended VPN server. Ask your VPN provider for a " +
-        "profile that includes a <ca> certificate or a <peer-fingerprint>, or add one to the " +
-        ".ovpn file, then import it again."
+    "This profile has no CA certificate and no explicit server-name pin, so the app cannot " +
+        "verify that it is really connecting to the intended VPN server. Ask your VPN provider " +
+        "for a profile that includes a <ca> certificate, or add one to the .ovpn file, then " +
+        "import it again."
+
+private const val PEER_FINGERPRINT_NOT_ENFORCED_MESSAGE =
+    "This profile relies on a peer-fingerprint pin, but the VPN engine in this build cannot " +
+        "verify certificate fingerprints (that option is silently ignored by its TLS backend), " +
+        "so the server identity could not be authenticated. Ask your VPN provider for a profile " +
+        "that includes a <ca> certificate, or add one to the .ovpn file, then import it again."
 
 object ProfileTrustPolicy {
     /** Real (not commented-out) trust directives present in [config]. */
     fun trustMaterial(config: String): TrustMaterial = scanTrust(config).material
 
     /**
-     * Fails closed for profiles that contain no trust anchor at all. A profile
-     * without a CA, a peer fingerprint pin or a legacy `tls-remote` directive
-     * must not be imported, because server authentication would be impossible.
+     * Fails closed for profiles that contain no trust anchor this backend can
+     * enforce. A profile without a CA or a legacy `tls-remote` directive must
+     * not be imported, because server authentication would be impossible (or, in
+     * the case of a peer-fingerprint-only profile, silently skipped).
      */
-    fun validateForImport(config: String): ImportDecision =
-        if (trustMaterial(config).hasServerTrust) {
-            ImportDecision.Allowed
-        } else {
-            ImportDecision.Rejected(NO_SERVER_TRUST_MESSAGE)
+    fun validateForImport(config: String): ImportDecision {
+        val material = trustMaterial(config)
+        return when {
+            material.hasServerTrust -> ImportDecision.Allowed
+            material.hasPeerFingerprint -> ImportDecision.Rejected(PEER_FINGERPRINT_NOT_ENFORCED_MESSAGE)
+            else -> ImportDecision.Rejected(NO_SERVER_TRUST_MESSAGE)
         }
+    }
+
+    /**
+     * True when the profile contains a `peer-fingerprint` pin that this engine
+     * build ignores. Callers should warn the user; the pin is not a trust anchor.
+     */
+    fun hasIgnoredPeerFingerprint(config: String): Boolean =
+        trustMaterial(config).hasPeerFingerprint
 
     /**
      * Stable SHA-256 fingerprint of the CA material in [config], or `null` when

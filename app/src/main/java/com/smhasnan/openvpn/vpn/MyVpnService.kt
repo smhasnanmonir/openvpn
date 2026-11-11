@@ -521,6 +521,18 @@ class MyVpnService : VpnService() {
                     )
                 }
 
+                // Issue #19: strict compression mode also installs push filters, so a
+                // server-pushed compressor (including compression stubs) is refused
+                // before Core can create a stub context, and profile-local compression
+                // directives cannot re-enable one.
+                if (settings.compressionPolicy == CompressionPolicy.STRICT) {
+                    connectConfig = ProfileSecurityPolicy.withStrictCompressionPolicy(connectConfig)
+                    VpnController.appendLog(
+                        LogLevel.INFO,
+                        "Strict compression policy: server-pushed compressors will be refused.",
+                    )
+                }
+
                 // Issue #10: an explicit MTU override must survive a server-pushed
                 // tun-mtu, so it is applied to the profile text before Core parses it.
                 connectConfig = MtuPolicy.withTunMtuOverride(connectConfig, settings.mtuMode)
@@ -669,7 +681,7 @@ class MyVpnService : VpnService() {
             session.also { session = null }
         }
         if (current == null) {
-            if (!revoked) VpnController.disconnected()
+            if (!revoked) VpnController.disconnected(keepPaused = keepDesired)
             stopSelfSafely()
             return
         }
@@ -684,7 +696,9 @@ class MyVpnService : VpnService() {
             if (revoked) {
                 VpnController.error("VPN permission was revoked. The tunnel has been closed.")
             } else {
-                VpnController.disconnected()
+                // keepDesired is set by the captive-portal pause: keep the paused
+                // banner (and the persisted connect intent) so the user can resume.
+                VpnController.disconnected(keepPaused = keepDesired)
             }
             stopSelfSafely()
         }
@@ -929,9 +943,21 @@ class MyVpnService : VpnService() {
                     pushedServers = pushedDns,
                     requireTunnelDns = settings.requireTunnelDns,
                     fallbackServers = DnsLeakPolicy.parseFallback(settings.fallbackDnsServers),
+                    tunnelIpv4 = hasIpv4,
+                    tunnelIpv6 = hasIpv6,
                 )
             ) {
                 is Decision.TunnelDns -> {
+                    if (decision.filteredServers.isNotEmpty()) {
+                        // Never log the resolver addresses themselves: they can
+                        // reveal the provider/network configuration.
+                        VpnController.appendLog(
+                            LogLevel.WARN,
+                            "${decision.filteredServers.size} DNS resolver(s) were not installed " +
+                                "because this tunnel does not route their address family; " +
+                                "that family stays blocked by Android instead of leaking.",
+                        )
+                    }
                     var addedDns = 0
                     for (server in decision.servers) {
                         runCatching { builder.addDnsServer(server) }.onSuccess { addedDns++ }
@@ -939,8 +965,8 @@ class MyVpnService : VpnService() {
                     if (decision.usedFallback) {
                         VpnController.appendLog(
                             LogLevel.INFO,
-                            "No DNS was pushed by the server; using the configured fallback " +
-                                "resolver(s) through the tunnel: ${decision.servers.joinToString()}",
+                            "No DNS was pushed by the server; using ${decision.servers.size} " +
+                                "configured fallback resolver(s) through the tunnel.",
                         )
                     }
                     if (addedDns == 0) {
@@ -1009,19 +1035,41 @@ class MyVpnService : VpnService() {
                         },
                 )
                 when (settings.splitTunnelMode) {
-                    SplitTunnelMode.INCLUDE_SELECTED -> for (packageName in effective) {
-                        runCatching { builder.addAllowedApplication(packageName) }.onFailure {
-                            VpnController.appendLog(
-                                LogLevel.WARN,
-                                "Could not add $packageName to the VPN allow-list; its traffic bypasses the tunnel.",
-                            )
+                    SplitTunnelMode.INCLUDE_SELECTED -> {
+                        var refused = 0
+                        for (packageName in effective) {
+                            runCatching { builder.addAllowedApplication(packageName) }
+                                .onFailure { refused++ }
+                        }
+                        if (refused > 0) {
+                            // In INCLUDE mode a package missing from the allow-list
+                            // bypasses the tunnel; refusing to connect is safer than
+                            // silently leaving selected apps unprotected.
+                            val reason =
+                                "Android refused to add $refused of the selected app(s) to the " +
+                                    "VPN allow-list, so they would bypass the tunnel. The " +
+                                    "connection was stopped to avoid leaving apps unprotected. " +
+                                    "Re-select the apps (they may have been uninstalled), then " +
+                                    "reconnect."
+                            tunError = reason
+                            VpnController.appendLog(LogLevel.ERROR, reason)
+                            runCatching { pfd?.close() }
+                            return -1
                         }
                     }
-                    SplitTunnelMode.EXCLUDE_SELECTED -> for (packageName in effective) {
-                        runCatching { builder.addDisallowedApplication(packageName) }.onFailure {
+                    SplitTunnelMode.EXCLUDE_SELECTED -> {
+                        var failed = 0
+                        for (packageName in effective) {
+                            runCatching { builder.addDisallowedApplication(packageName) }
+                                .onFailure { failed++ }
+                        }
+                        if (failed > 0) {
+                            // Failing to exclude is the safe direction: those apps stay
+                            // inside the tunnel. Never log the package names.
                             VpnController.appendLog(
                                 LogLevel.WARN,
-                                "Could not exclude $packageName from the VPN; its traffic stays inside the tunnel.",
+                                "$failed selected app(s) could not be excluded from the VPN; " +
+                                    "their traffic still uses the tunnel (protected).",
                             )
                         }
                     }
@@ -1121,6 +1169,20 @@ class MyVpnService : VpnService() {
                 }
                 "PAUSE" -> onPaused()
                 "RESUME" -> resumeJob?.cancel()
+                "CLIENT_RESTART" -> {
+                    // Core normally restarts transparently on a server RESTART. When
+                    // the restart is caused by our own pull-filter policy refusing a
+                    // pushed option, Core would loop forever; fail the session
+                    // visibly so the user can change the policy or profile.
+                    if (info.contains("rejected pushed option", ignoreCase = true)) {
+                        fail(
+                            "The server pushed an option this app's security policy refuses " +
+                                "(for example a non-AEAD cipher, or compression in strict mode). " +
+                                "Review the cipher/compression policy in Settings, or use a " +
+                                "compatible profile.",
+                        )
+                    }
+                }
                 "SESSION_FINISHED" -> {
                     resumeJob?.cancel()
                     onSessionFinished()

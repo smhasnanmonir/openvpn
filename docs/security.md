@@ -45,17 +45,24 @@ private, and avoid overstating what Android and the server guarantee.
 - **Tunnel DNS fail-closed by default.** `Require tunnel DNS` defaults to ON: a
   connection that would have no usable pushed resolver (and no validated
   user-configured fallback) is refused instead of silently falling back to the
-  underlying network's DNS (ADR-008).
-- **Strict server-trust policy.** Profiles must carry a CA, a
-  `peer-fingerprint`, or the legacy `tls-remote` directive; profiles with no
-  trust material are rejected at import and refused at connect. A same-name
-  re-import with different CA material produces an explicit warning
-  (ADR-009).
+  underlying network's DNS (ADR-008). Resolvers whose address family is not
+  routed through the tunnel are dropped too (an IPv6 resolver on an IPv4-only
+  tunnel cannot be used without restoring the underlying IPv6 route), so
+  "usable" means reachable through the tunnel.
+- **Strict server-trust policy.** Profiles must carry a CA or the legacy
+  `tls-remote` directive; profiles with no trust material are rejected at
+  import and refused at connect. A `peer-fingerprint` is recorded and reported,
+  but it is **not** an accepted anchor: the pinned mbedTLS backend does not
+  enforce pins, so a fingerprint-only profile is rejected with an explicit
+  "cannot be enforced" message (CA + pin is allowed with a warning). A same-name
+  re-import with different CA material produces an explicit warning (ADR-009).
 - **Explicit compression/cipher modes.** Compatibility compression
   (LZO-ASYM, ADR-005) and profile-driven ciphers remain the defaults; users can
-  opt into Strict compression (a real server-pushed compressor fails loudly;
-  compression stubs that carry no payload are still accepted) and
-  AEAD-only ciphers (connect-time `pull-filter` accepts AES-GCM variants/ChaCha20-Poly1305 only)
+  opt into Strict compression (profile compression directives are stripped and
+  every server-pushed `comp-lzo`/`compress` option is refused — including
+  stubs — so a compression-requiring provider must use Compatibility) and
+  AEAD-only ciphers (connect-time `pull-filter` accepts AES-GCM
+  variants/ChaCha20-Poly1305 and rejects a non-AEAD pushed cipher)
   (ADR-010). The active policy is shown in diagnostics; hardening is never
   silent.
 - **Split tunneling is explicit and warned.** Off by default; when enabled the
@@ -107,16 +114,16 @@ The app:
 - rejects profiles that explicitly request an external PKI certificate/key
   provider instead of silently bypassing them;
 - appends `remote-cert-tls server` for CA-based profiles that do not already
-  specify an explicit server-certificate policy (`remote-cert-*`, `tls-remote`,
-  `peer-fingerprint`, or an inline `<peer-fingerprint>` block), both at import
-  and connect time; a server certificate without the serverAuth extended key
-  usage now fails verification by design and is documented as a breaking
-  compatibility change;
+  specify an explicit server-certificate policy (`remote-cert-*` or
+  `tls-remote`), both at import and connect time; a server certificate without
+  the serverAuth extended key usage now fails verification by design and is
+  documented as a breaking compatibility change;
 - enforces a strict trust policy: a profile is accepted only when it carries a
-  CA, a `peer-fingerprint` (line or inline `<peer-fingerprint>` block), or the
-  legacy `tls-remote` directive. Profiles with no trust material are rejected
-  at import with an actionable message and refused at connect time even if an
-  older app version stored them (ADR-009);
+  CA or the legacy `tls-remote` directive. Profiles with no trust material are
+  rejected at import with an actionable message and refused at connect time
+  even if an older app version stored them; profiles whose only anchor is a
+  `peer-fingerprint` are rejected with an explicit "pin cannot be enforced by
+  this client" message (ADR-009);
 - warns when a same-name profile is re-imported with different CA material, so
   a silent trust-anchor replacement is visible;
 - for certificate-less username/password profiles only, adds Core's
@@ -125,9 +132,10 @@ The app:
   unaffected (ADR-004);
 - lets core reject invalid server certificates and reports the engine error.
 
-The app supports profiles that use standard CA/`peer-fingerprint` validation
-according to what OpenVPN Core 3.9 supports. It does not add custom pinning or
-custom crypto.
+The app supports profiles that use standard CA-based (or legacy `tls-remote`)
+validation according to what OpenVPN Core 3.9 supports. It does not add custom
+pinning or custom crypto, and the pinned mbedTLS build does not enforce
+`peer-fingerprint`, so pins are reported rather than trusted.
 
 **Revocation is server/PKI-side.** The pinned client has no CRL/OCSP
 integration. A certificate revoked by the server/PKI operator cannot complete

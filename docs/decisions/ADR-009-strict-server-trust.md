@@ -29,14 +29,26 @@ than imply client-side revocation checking.
 ## Decision
 
 1. **Import-time trust requirement.** A profile is only accepted when it
-   contains at least one server-trust anchor:
+   contains at least one **enforceable** server-trust anchor:
    - a CA (`ca` directive, inline `<ca>`, or a merged external CA reference);
-   - a `peer-fingerprint` (line form or inline `<peer-fingerprint>` block);
    - the legacy `tls-remote` directive (treated as an explicit, documented
      legacy trust/name policy because it pins the expected subject).
+   A `peer-fingerprint` (line form or inline `<peer-fingerprint>` block) is
+   recorded as profile metadata and its presence triggers a warning, but it is
+   **not** accepted as a trust anchor: the pinned OpenVPN 3 Core is built with
+   the mbedTLS TLS backend, and that backend does not implement
+   `peer-fingerprint` verification, so relying on a pin would silently verify
+   with the ordinary CA/hostname path (or fail). Profiles whose only trust
+   material is a fingerprint are rejected with an actionable message saying
+   the pin cannot be enforced by this client and a CA is required.
    Profiles with no trust material are **rejected at import** with an
-   actionable message that says what is missing (CA or peer fingerprint) and
-   what the user must do (re-export the profile from the provider with its CA).
+   actionable message that says what is missing (CA) and what the user must do
+   (re-export the profile from the provider with its CA).
+   *Amendment (2026-11-11):* the original decision listed `peer-fingerprint` as
+   an anchor. End-to-end verification showed the mbedTLS build ignores it, so
+   accepting fingerprint-only profiles would have been security theatre. The
+   pin is now reported as unenforced instead (see `hasIgnoredPeerFingerprint`
+   and the import warning).
 2. **Connect-time re-check for stored/legacy profiles.** Profiles already stored
    by older app versions are checked again at connect time with the same
    `ProfileTrustPolicy`. An untrusted legacy profile is refused with a clear
@@ -44,8 +56,10 @@ than imply client-side revocation checking.
    using a profile that would now be rejected at import.
 3. **Keep (do not weaken) the PR #5 server-usage enforcement.**
    `remote-cert-tls server` continues to be appended at import and connect for
-   CA-based profiles without an explicit policy; `peer-fingerprint` and
-   `tls-remote` profiles are left untouched. Strict trust is additive.
+   CA-based profiles without an explicit policy; `tls-remote` profiles are left
+   untouched. Profile `peer-fingerprint` lines are preserved (they are harmless
+   metadata/warnings for a future backend), but are never treated as a
+   substitute for the CA. Strict trust is additive.
 4. **CA-change warning on same-name re-import.** When a profile with the same
    display name is re-imported and its CA material differs, the import succeeds
    but the result carries an explicit warning (shown in the UI and recorded in
@@ -60,15 +74,18 @@ than imply client-side revocation checking.
    anchors and reports certificate-verification failures.
 6. **No "insecure" escape hatch.** There is no setting that disables
    certificate verification or accepts an untrusted server. The only profile
-   exceptions are the explicit ones above (CA, peer fingerprint, legacy
-   `tls-remote`), all of which are profile-supplied and visible.
+   exceptions are the explicit ones above (CA or legacy `tls-remote`), both of
+   which are profile-supplied and visible.
 
 ## Consequences
 
-- **Intentional behaviour change:** profiles with no CA/peer-fingerprint/
-  `tls-remote` are rejected (import) or refused (connect). Some hand-built or
-  stripped-down profiles that used to attempt a connection will now stop with
-  an explanation. This is documented in the changelog and README.
+- **Intentional behaviour change:** profiles with no CA/`tls-remote` are
+  rejected (import) or refused (connect), and profiles whose only trust
+  material is a `peer-fingerprint` are rejected with an explicit
+  "pin cannot be enforced" message. Some hand-built or stripped-down profiles
+  that used to attempt a connection will now stop with an explanation. This is
+  documented in the changelog and README; re-exporting the profile from the
+  provider with its CA is the supported fix.
 - Profiles that rely on the server presenting a certificate from a public CA
   without a profile CA are not supported; the app does not add a system trust
   store. That is a deliberate non-goal (the pinned core has no such mode).

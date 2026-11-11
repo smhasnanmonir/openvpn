@@ -145,15 +145,20 @@ class VpnControllerTest {
     }
 
     @Test
-    fun disconnectedAfterAPortalPauseKeepsThePauseFlag() {
+    fun portalPauseTeardownKeepsThePauseFlagButAnExplicitDisconnectClearsIt() {
         VpnController.prepare("profile", "Provider profile", "🛡️")
         VpnController.pausedForPortal()
 
-        VpnController.disconnected()
-
+        // A portal-pause teardown must keep the banner/resume affordance...
+        VpnController.disconnected(keepPaused = true)
         assertEquals(VpnState.DISCONNECTED, snapshot().state)
         assertTrue(snapshot().pausedForPortal)
         assertEquals("profile", snapshot().profileId)
+
+        // ...an explicit disconnect must clear it, otherwise the UI would offer a
+        // "Resume" for a session the user deliberately ended.
+        VpnController.disconnected()
+        assertFalse(snapshot().pausedForPortal)
     }
 
     @Test

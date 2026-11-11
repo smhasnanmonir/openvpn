@@ -277,4 +277,28 @@ class EngineEventMapperTest {
         assertEquals(VpnState.ERROR, mapped.state)
         assertTrue(mapped.message!!.contains("key renegotiation", ignoreCase = true))
     }
+
+    @Test
+    fun rejectedPushedOptionRestartFailsVisibly() {
+        val mapped = EngineEventMapper.map(
+            "CLIENT_RESTART",
+            "RESTART,rejected pushed option: [cipher] AES-256-CBC",
+            error = true,
+            fatal = false,
+        )
+        assertEquals(VpnState.ERROR, mapped.state)
+        assertTrue(mapped.message!!.contains("policy", ignoreCase = true))
+        assertTrue(mapped.message!!.contains("cipher", ignoreCase = true))
+    }
+
+    @Test
+    fun ordinaryServerRestartDoesNotReplaceTheConnectionState() {
+        val mapped = EngineEventMapper.map(
+            "CLIENT_RESTART",
+            "RESTART by server",
+            error = false,
+            fatal = false,
+        )
+        assertNull(mapped.state)
+    }
 }

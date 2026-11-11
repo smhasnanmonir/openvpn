@@ -336,9 +336,15 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
         portalPauseRequested = true
         autoResumeConsumed = false
-        VpnController.pausedForPortal()
+        // The snapshot is only changed by the service once the pause is actually
+        // applied (MyVpnService ACTION_PAUSE_FOR_PORTAL). Publishing the paused
+        // state here would show "not protected" even when the request failed and
+        // the tunnel is still up.
         runCatching { MyVpnService.pauseForPortal(getApplication()) }
-            .onFailure { message("Could not pause the VPN for network sign-in.", isError = true) }
+            .onFailure {
+                portalPauseRequested = false
+                message("Could not pause the VPN for network sign-in.", isError = true)
+            }
     }
 
     /**

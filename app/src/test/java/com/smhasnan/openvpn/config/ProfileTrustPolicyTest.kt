@@ -1,4 +1,4 @@
-﻿package com.smhasnan.openvpn.config
+package com.smhasnan.openvpn.config
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -25,7 +25,7 @@ class ProfileTrustPolicyTest {
     }
 
     @Test
-    fun inlinePeerFingerprintBlockCountsAsTrust() {
+    fun inlinePeerFingerprintBlockIsRecordedButIsNotAnEnforceableAnchor() {
         val config = """
             client
             remote example.com 1194
@@ -37,14 +37,42 @@ class ProfileTrustPolicyTest {
         val material = ProfileTrustPolicy.trustMaterial(config)
         assertTrue(material.hasPeerFingerprint)
         assertFalse(material.hasCa)
-        assertTrue(material.hasServerTrust)
+        // The pinned mbedTLS backend ignores peer-fingerprint, so a pin alone
+        // must not be accepted as proof of server identity.
+        assertFalse(material.hasServerTrust)
     }
 
     @Test
-    fun linePeerFingerprintCountsAsTrust() {
+    fun linePeerFingerprintIsRecordedButIsNotAnEnforceableAnchor() {
         val material = ProfileTrustPolicy.trustMaterial("client\npeer-fingerprint AA:BB:CC\nremote example.com 1194\n")
         assertTrue(material.hasPeerFingerprint)
-        assertTrue(material.hasServerTrust)
+        assertFalse(material.hasServerTrust)
+    }
+
+    @Test
+    fun fingerprintOnlyProfilesAreRejectedWithAnExplicitReason() {
+        val decision = ProfileTrustPolicy.validateForImport("client\npeer-fingerprint AA:BB:CC\n")
+        assertTrue(decision is ImportDecision.Rejected)
+        val message = (decision as ImportDecision.Rejected).message
+        assertTrue(message.contains("cannot", ignoreCase = true) || message.contains("could not", ignoreCase = true))
+        assertTrue(message.contains("fingerprint", ignoreCase = true))
+        assertTrue(message.contains("<ca>"))
+    }
+
+    @Test
+    fun caPlusFingerprintProfilesStayAllowedAndTheIgnoredPinIsReported() {
+        val config = """
+            client
+            remote example.com 1194
+            <ca>
+            -----BEGIN CERTIFICATE-----
+            MIIB
+            -----END CERTIFICATE-----
+            </ca>
+            peer-fingerprint AA:BB:CC
+        """.trimIndent() + "\n"
+        assertEquals(ImportDecision.Allowed, ProfileTrustPolicy.validateForImport(config))
+        assertTrue(ProfileTrustPolicy.hasIgnoredPeerFingerprint(config))
     }
 
     @Test
@@ -109,10 +137,13 @@ class ProfileTrustPolicyTest {
     }
 
     @Test
-    fun validatesProfilesWithATrustAnchor() {
+    fun validatesProfilesWithAnEnforceableTrustAnchor() {
         assertEquals(ImportDecision.Allowed, ProfileTrustPolicy.validateForImport(CA_PROFILE))
-        assertEquals(ImportDecision.Allowed, ProfileTrustPolicy.validateForImport("client\npeer-fingerprint AA:BB\n"))
         assertEquals(ImportDecision.Allowed, ProfileTrustPolicy.validateForImport("client\ntls-remote example.com\n"))
+        // A pin alone is not enforceable by this TLS backend.
+        assertTrue(
+            ProfileTrustPolicy.validateForImport("client\npeer-fingerprint AA:BB\n") is ImportDecision.Rejected,
+        )
     }
 
     @Test
@@ -121,9 +152,8 @@ class ProfileTrustPolicyTest {
         assertTrue(decision is ImportDecision.Rejected)
         val message = (decision as ImportDecision.Rejected).message
         assertTrue(message.contains("CA", ignoreCase = true))
-        assertTrue(message.contains("fingerprint", ignoreCase = true))
+        assertTrue(message.contains("pin", ignoreCase = true))
         assertTrue(message.contains("<ca>"))
-        assertTrue(message.contains("<peer-fingerprint>"))
         assertTrue(message.contains("import", ignoreCase = true))
         assertFalse(message.contains("tls-remote"))
     }

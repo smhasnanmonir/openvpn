@@ -1,4 +1,4 @@
-﻿package com.smhasnan.openvpn.config
+package com.smhasnan.openvpn.config
 
 import com.smhasnan.openvpn.settings.CompressionPolicy
 import org.junit.Assert.assertEquals
@@ -92,16 +92,42 @@ class ProfileSecurityPolicyTest {
     }
 
     @Test
-    fun aeadPushPolicyAppendsAcceptsBeforeTheReject() {
+    fun aeadPushPolicyQuotesTheMatchExpression() {
         val result = ProfileSecurityPolicy.withAeadOnlyPushPolicy("client\n")
         val lines = result.lines().filter { it.isNotBlank() }
         assertEquals("client", lines.first())
-        assertEquals(5, lines.size - 1)
-        assertEquals("pull-filter accept cipher AES-256-GCM", lines[1])
-        assertEquals("pull-filter accept cipher AES-192-GCM", lines[2])
-        assertEquals("pull-filter accept cipher AES-128-GCM", lines[3])
-        assertEquals("pull-filter accept cipher CHACHA20-POLY1305", lines[4])
-        assertEquals("pull-filter reject cipher", lines.last())
+        assertEquals("pull-filter accept \"cipher AES-256-GCM\"", lines[1])
+        assertEquals("pull-filter accept \"cipher AES-192-GCM\"", lines[2])
+        assertEquals("pull-filter accept \"cipher AES-128-GCM\"", lines[3])
+        assertEquals("pull-filter accept \"cipher CHACHA20-POLY1305\"", lines[4])
+        assertEquals("pull-filter reject \"cipher\"", lines[5])
+        // No cipher directive in the profile: add an AEAD local fallback so Core
+        // cannot fall back to BF-CBC when the server pushes no cipher either.
+        assertEquals("cipher AES-256-GCM", lines[6])
+        assertEquals(7, lines.size)
+    }
+
+    @Test
+    fun aeadPushPolicyDoesNotAddFallbackCipherWhenProfilePinsOne() {
+        val pinned = ProfileSecurityPolicy.withAeadOnlyPushPolicy("client\ncipher AES-256-GCM\n")
+        assertEquals(1, pinned.lines().count { it.trim() == "cipher AES-256-GCM" })
+        val dataCiphers = ProfileSecurityPolicy.withAeadOnlyPushPolicy(
+            "client\ndata-ciphers AES-256-GCM:AES-128-GCM\n",
+        )
+        assertEquals(0, dataCiphers.lines().count { it.trim() == "cipher AES-256-GCM" })
+    }
+
+    @Test
+    fun aeadPushPolicyRemovesProfileCipherPullFilters() {
+        val config = "client\n" +
+            "pull-filter accept cipher\n" +
+            "pull-filter reject \"cipher BF-CBC\"\n" +
+            "pull-filter ignore cipher\n"
+        val result = ProfileSecurityPolicy.withAeadOnlyPushPolicy(config)
+        assertFalse(result.lines().any { it == "pull-filter accept cipher" })
+        assertFalse(result.contains("BF-CBC"))
+        assertFalse(result.contains("ignore cipher"))
+        assertEquals(1, result.lines().count { it == "pull-filter reject \"cipher\"" })
     }
 
     @Test
@@ -109,11 +135,12 @@ class ProfileSecurityPolicyTest {
         val once = ProfileSecurityPolicy.withAeadOnlyPushPolicy("client\nremote example.com 1194\n")
         val twice = ProfileSecurityPolicy.withAeadOnlyPushPolicy(once)
         assertEquals(once, twice)
-        assertEquals(1, twice.lines().count { it == "pull-filter reject cipher" })
+        assertEquals(1, twice.lines().count { it == "pull-filter reject \"cipher\"" })
         assertEquals(
             1,
-            twice.lines().count { it == "pull-filter accept cipher AES-256-GCM" },
+            twice.lines().count { it == "pull-filter accept \"cipher AES-256-GCM\"" },
         )
+        assertEquals(1, twice.lines().count { it.trim() == "cipher AES-256-GCM" })
     }
 
     @Test
@@ -127,19 +154,55 @@ class ProfileSecurityPolicyTest {
         val config = "client\npull-filter reject cipher\npull-filter accept cipher AES-128-GCM\n"
         val result = ProfileSecurityPolicy.withAeadOnlyPushPolicy(config)
         val policyLines = result.lines().filter { it.startsWith("pull-filter ") }
-        assertEquals("pull-filter reject cipher", policyLines.last())
         assertEquals(5, policyLines.size)
+        assertEquals("pull-filter reject \"cipher\"", policyLines.last())
         assertTrue(
-            result.indexOf("pull-filter accept cipher AES-256-GCM") <
-                result.indexOf("pull-filter reject cipher"),
+            result.indexOf("pull-filter accept \"cipher AES-256-GCM\"") <
+                result.indexOf("pull-filter reject \"cipher\""),
         )
     }
 
     @Test
     fun aeadPushPolicyOnEmptyConfigStartsWithTheAccepts() {
         val result = ProfileSecurityPolicy.withAeadOnlyPushPolicy("")
-        assertTrue(result.startsWith("pull-filter accept cipher AES-256-GCM"))
-        assertTrue(result.endsWith("pull-filter reject cipher"))
+        assertTrue(result.startsWith("pull-filter accept \"cipher AES-256-GCM\""))
+        assertTrue(result.endsWith("cipher AES-256-GCM"))
+    }
+
+    @Test
+    fun strictCompressionRemovesLocalCompressionDirectives() {
+        val result = ProfileSecurityPolicy.withStrictCompressionPolicy(
+            "client\ncomp-lzo adaptive\ncompress lzo\nremote example.com 1194\n",
+        )
+        assertFalse(result.contains("comp-lzo adaptive"))
+        assertFalse(result.contains("compress lzo"))
+        assertTrue(result.contains("remote example.com 1194"))
+        assertTrue(result.contains("pull-filter accept \"comp-lzo no\""))
+    }
+
+    @Test
+    fun strictCompressionPolicyAcceptsOnlyTheDisabledStubAndRejectsTheRest() {
+        val result = ProfileSecurityPolicy.withStrictCompressionPolicy("client\n")
+        val policy = result.lines().filter { it.startsWith("pull-filter ") }
+        assertEquals(
+            listOf(
+                "pull-filter accept \"comp-lzo no\"",
+                "pull-filter reject \"comp-lzo\"",
+                "pull-filter reject \"compress\"",
+            ),
+            policy,
+        )
+    }
+
+    @Test
+    fun strictCompressionPolicyIsIdempotentAndStripsForeignFilters() {
+        val once = ProfileSecurityPolicy.withStrictCompressionPolicy(
+            "client\npull-filter ignore compress\n",
+        )
+        val twice = ProfileSecurityPolicy.withStrictCompressionPolicy(once)
+        assertEquals(once, twice)
+        assertFalse(twice.contains("ignore compress"))
+        assertEquals(1, twice.lines().count { it == "pull-filter reject \"compress\"" })
     }
 
     @Test

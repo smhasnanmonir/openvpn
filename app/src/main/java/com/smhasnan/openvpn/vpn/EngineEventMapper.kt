@@ -30,6 +30,12 @@ object EngineEventMapper {
     private const val NETWORK_UNAVAILABLE_MESSAGE =
         "No usable network is available. Check Wi-Fi or mobile data and try again."
 
+    private const val REJECTED_PUSHED_OPTION_MESSAGE =
+        "The server pushed an option this app's security policy refuses (for example a non-AEAD " +
+            "cipher, or compression in strict mode). The connection was stopped; review the " +
+            "cipher/compression policy in Settings, or ask your VPN provider for a compatible " +
+            "profile."
+
     data class Mapped(
         val state: VpnState?,
         val message: String? = null,
@@ -133,6 +139,15 @@ object EngineEventMapper {
             VpnState.ERROR,
             info.ifBlank { "The configured proxy requires credentials." },
         )
+        // Core restarts internally on a server RESTART. A "rejected pushed option"
+        // restart is different: the app's pull-filter policy refused an option the
+        // server requires, so Core would restart forever. Fail visibly instead of
+        // leaving the UI reconnecting indefinitely.
+        "CLIENT_RESTART" -> if (info.contains("rejected pushed option", ignoreCase = true)) {
+            Mapped(VpnState.ERROR, REJECTED_PUSHED_OPTION_MESSAGE)
+        } else {
+            Mapped(null, info.ifBlank { "The server requested a session restart." })
+        }
         "PROFILE_REJECTED", "CREDENTIALS_REJECTED", "TUN_SETUP_FAILED", "TUN_ERROR",
         "TUN_IFACE_CREATE", "TUN_IFACE_DISABLED", "ENGINE_ERROR", "CLIENT_HALT",
         "CLIENT_SETUP", "EPKI_ERROR", "EPKI_INVALID_ALIAS",
