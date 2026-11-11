@@ -72,8 +72,14 @@ object VpnController {
         }
     }
 
-    fun engineEvent(name: String, info: String, error: Boolean, fatal: Boolean) {
-        val mapped = EngineEventMapper.map(name, info, error, fatal)
+    fun engineEvent(
+        name: String,
+        info: String,
+        error: Boolean,
+        fatal: Boolean,
+        rekeyHint: Boolean = false,
+    ) {
+        val mapped = EngineEventMapper.map(name, info, error, fatal, rekeyHint)
         // Always record the engine's failure reason. Fatal core events such as
         // CONNECTION_TIMEOUT carry no info text, so the mapped message is the
         // only usable explanation and must reach the diagnostics list.

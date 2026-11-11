@@ -188,6 +188,34 @@ class VpnControllerLogBufferTest {
     }
 
     @Test
+    fun rekeyHintExplainsTheRekeyAndKeepsTheRawEngineDetail() = runBlocking {
+        VpnController.prepare("profile", "Provider profile", "🛡️")
+        VpnController.engineEvent("CONNECTING", "", false, false)
+        VpnController.engineEvent(
+            "SESSION_FINISHED",
+            "client_connect_unhandled_exception",
+            error = true,
+            fatal = false,
+            rekeyHint = true,
+        )
+
+        val snapshot = awaitLogs { logs ->
+            logs.any { it.message == "Engine detail: client_connect_unhandled_exception" }
+        }
+        assertTrue(
+            snapshot.any {
+                it.level == LogLevel.ERROR && it.message.contains("key renegotiation", ignoreCase = true)
+            },
+        )
+        assertTrue(
+            snapshot.any { it.message == "Engine detail: client_connect_unhandled_exception" },
+        )
+        assertFalse(
+            VpnController.snapshot.value.error!!.contains("client_connect_unhandled_exception"),
+        )
+    }
+
+    @Test
     fun concurrentAppendsFromNativeThreadsAreThreadSafe() = runBlocking {
         val threads = 8
         val perThread = 100

@@ -66,6 +66,24 @@ class EngineEventMapperTest {
 
     @Test
     fun keyingMaterialExportFailureExplainsTheRekey() {
+        // The real payload is the generic unhandled-exception text (see
+        // native_bridge.cpp); the engine log for the same session supplies the
+        // keying-material hint. This is the payload the app actually receives.
+        val mapped = EngineEventMapper.map(
+            "SESSION_FINISHED",
+            "client_connect_unhandled_exception",
+            error = true,
+            fatal = false,
+            rekeyHint = true,
+        )
+        assertEquals(VpnState.ERROR, mapped.state)
+        assertTrue(mapped.message!!.contains("key renegotiation", ignoreCase = true))
+        assertTrue(mapped.message!!.contains("Reconnect", ignoreCase = true))
+        assertFalse(mapped.message!!.contains("client_connect_unhandled_exception"))
+    }
+
+    @Test
+    fun keyingMaterialTextStillExplainsTheRekeyWithoutAHint() {
         val mapped = EngineEventMapper.map(
             "SESSION_FINISHED",
             "TLS Keying material export error",
@@ -74,7 +92,6 @@ class EngineEventMapperTest {
         )
         assertEquals(VpnState.ERROR, mapped.state)
         assertTrue(mapped.message!!.contains("key renegotiation", ignoreCase = true))
-        assertTrue(mapped.message!!.contains("Reconnect", ignoreCase = true))
     }
 
     @Test
@@ -127,6 +144,7 @@ class EngineEventMapperTest {
         val mapped = EngineEventMapper.map("CERT_VERIFY_FAIL", "", true, true)
         assertEquals(VpnState.ERROR, mapped.state)
         assertTrue(mapped.message!!.contains("certificate", ignoreCase = true))
+        assertTrue(mapped.message!!.contains("serverAuth", ignoreCase = true))
         assertTrue(mapped.message!!.contains("clock", ignoreCase = true))
     }
 

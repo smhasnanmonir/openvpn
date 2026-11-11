@@ -282,4 +282,11 @@ class ProfileServerCertificatePolicyTest {
         val result = ProfileImportPolicy.withServerCertificateUsage(config)
         assertTrue(result.lines().any { it.trim() == "remote-cert-tls server" })
     }
+
+    @Test
+    fun keepsInlinePeerFingerprintBlocksUntouched() {
+        val config = "client\n<ca>\nMIIB\n</ca>\n<peer-fingerprint>\n" +
+            "AA:BB:CC\nDD:EE:FF\n</peer-fingerprint>\n"
+        assertEquals(config, ProfileImportPolicy.withServerCertificateUsage(config))
+    }
 }

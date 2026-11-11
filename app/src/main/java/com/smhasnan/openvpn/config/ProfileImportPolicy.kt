@@ -54,9 +54,13 @@ object ProfileImportPolicy {
         options = setOf(RegexOption.IGNORE_CASE, RegexOption.MULTILINE),
     )
 
-    /** `peer-fingerprint` pins the server certificate directly; no CA check is involved. */
+    /**
+     * `peer-fingerprint` pins the server certificate directly; no CA check is
+     * involved. Both the one-line form and the `<peer-fingerprint>` inline block
+     * (multiple fingerprints, one per line) are supported by Core 3.9.
+     */
     private val PEER_FINGERPRINT_DIRECTIVE = Regex(
-        pattern = "^(?![ \\t]*[#;])[ \\t]*peer-fingerprint(?:[ \\t]+[^\\r\\n]*)?[ \\t\\r]*$",
+        pattern = "^(?![ \\t]*[#;])[ \\t]*(?:peer-fingerprint(?:[ \\t]+[^\\r\\n]*)?|<peer-fingerprint>)[ \\t\\r]*$",
         options = setOf(RegexOption.IGNORE_CASE, RegexOption.MULTILINE),
     )
 

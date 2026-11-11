@@ -37,7 +37,20 @@ object EngineEventMapper {
         val requiresChallenge: Boolean = false,
     )
 
-    fun map(name: String, info: String, error: Boolean, fatal: Boolean): Mapped = when (name) {
+    /**
+     * @param rekeyHint true when the engine's log for this session contains a
+     *   TLS keying-material export failure. Core reports the rekey failure as
+     *   the generic `client_connect_unhandled_exception` text, so the event
+     *   payload alone cannot distinguish it from other unhandled exceptions;
+     *   the caller supplies the hint from the preceding engine log line.
+     */
+    fun map(
+        name: String,
+        info: String,
+        error: Boolean,
+        fatal: Boolean,
+        rekeyHint: Boolean = false,
+    ): Mapped = when (name) {
         "CONNECTING" -> Mapped(VpnState.CONNECTING, clearError = true)
         "CONNECTED" -> Mapped(VpnState.CONNECTED, clearError = true)
         "RECONNECTING" -> Mapped(VpnState.RECONNECTING, clearError = true)
@@ -85,8 +98,9 @@ object EngineEventMapper {
         "CERT_VERIFY_FAIL" -> Mapped(
             VpnState.ERROR,
             info.ifBlank {
-                "The server certificate could not be verified. Check the profile's CA and " +
-                    "server identity, and make sure the device clock is correct."
+                "The server certificate could not be verified. The app requires a server " +
+                    "certificate (serverAuth extended key usage) for CA-based profiles; check " +
+                    "the profile's CA, server identity and the device clock."
             },
         )
         "PROXY_NEED_CREDS" -> Mapped(
@@ -105,11 +119,15 @@ object EngineEventMapper {
             error -> Mapped(
                 VpnState.ERROR,
                 when {
-                    info.contains(UNHANDLED_ENGINE_EXCEPTION, ignoreCase = true) ->
-                        UNHANDLED_ENGINE_MESSAGE
-                    info.contains(KEYING_MATERIAL_ERROR, ignoreCase = true) ||
+                    // Core reports a rekey key-export failure as the generic
+                    // client_connect_unhandled_exception text, so prefer the
+                    // log-derived hint before the generic branch.
+                    rekeyHint ||
+                        info.contains(KEYING_MATERIAL_ERROR, ignoreCase = true) ||
                         info.contains("KEY_EXPANSION_ERROR", ignoreCase = true) ->
                         REKEY_KEY_EXPORT_MESSAGE
+                    info.contains(UNHANDLED_ENGINE_EXCEPTION, ignoreCase = true) ->
+                        UNHANDLED_ENGINE_MESSAGE
                     info.contains("Network Unavailable", ignoreCase = true) ||
                         info.contains("NETWORK_UNAVAILABLE", ignoreCase = true) ->
                         NETWORK_UNAVAILABLE_MESSAGE
