@@ -178,7 +178,7 @@ class ConfigImporter(
             // `remote-cert-tls server` was appended. Check both hashes so an
             // upgrade re-import is still recognised instead of duplicated.
             val previousHash =
-                if (serverUsage != content) sha256(contentBeforeServerUsage) else null
+                if (serverUsage != contentBeforeServerUsage) sha256(contentBeforeServerUsage) else null
             val existing = repository.findByHash(hash)
                 ?: if (previousHash != null) repository.findByHash(previousHash) else null
             existing?.let { already ->

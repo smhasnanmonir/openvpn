@@ -391,8 +391,8 @@ Result: **pass**. 110 unit tests in 16 suites, 0 failures; lint 0 errors; debug
 APK and instrumentation-test APK built. `:app:externalNativeBuildDebug` built
 `arm64-v8a` and `x86_64`. New coverage: `NativeEngineStatsTest` pins the
 download/upload direction (including the transport fallback and partial TUN
-counters) and `EngineEventMapperTest` covers `PAUSE`/`RESUME`, and `PauseRetryPolicyTest`
-pins the backoff/cap of the bounded resume policy.
+counters), `EngineEventMapperTest` covers `PAUSE`/`RESUME`, and
+`PauseRetryPolicyTest` pins the backoff/cap of the bounded resume policy.
 
 Manual checks still required:
 

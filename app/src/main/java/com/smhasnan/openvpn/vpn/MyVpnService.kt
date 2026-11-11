@@ -134,6 +134,9 @@ class MyVpnService : VpnService() {
                         LogLevel.WARN,
                         "Ignoring connect request while the service is stopping",
                     )
+                    // connect() uses startForegroundService(); a late tap must not
+                    // leave a started-but-not-foreground service behind.
+                    stopSelfSafely()
                     return START_NOT_STICKY
                 }
                 val profileId = intent.getStringExtra(EXTRA_PROFILE_ID)
@@ -179,9 +182,10 @@ class MyVpnService : VpnService() {
                 // an ordinary stale session is never restored.
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && isAlwaysOn) {
                     startFromAlwaysOn()
-                } else {
-                    stopSelf()
+                    // Keep the Always-on restart mode sticky across process deaths.
+                    return START_STICKY
                 }
+                stopSelf()
             }
         }
         return START_NOT_STICKY
