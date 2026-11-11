@@ -66,6 +66,25 @@ object VpnController {
         )
     }
 
+    /**
+     * Marks the tunnel as deliberately paused for a captive-portal sign-in. The
+     * native session is closed by the service; the snapshot keeps the profile so
+     * the UI can offer "Resume VPN" and so an automatic resume can reconnect it.
+     */
+    fun pausedForPortal() {
+        _snapshot.update {
+            it.copy(
+                state = VpnState.DISCONNECTED,
+                pausedForPortal = true,
+                connectedAtMillis = null,
+                error = null,
+                challenge = null,
+                stats = TrafficStats(),
+                details = ConnectionDetails(),
+            )
+        }
+    }
+
     fun disconnecting() {
         _snapshot.update {
             it.copy(state = VpnState.DISCONNECTING, error = null, challenge = null)
@@ -78,8 +97,9 @@ object VpnController {
         error: Boolean,
         fatal: Boolean,
         rekeyHint: Boolean = false,
+        tunHint: String? = null,
     ) {
-        val mapped = EngineEventMapper.map(name, info, error, fatal, rekeyHint)
+        val mapped = EngineEventMapper.map(name, info, error, fatal, rekeyHint, tunHint)
         // Always record the engine's failure reason. Fatal core events such as
         // CONNECTION_TIMEOUT carry no info text, so the mapped message is the
         // only usable explanation and must reach the diagnostics list.
@@ -142,6 +162,13 @@ object VpnController {
                 },
                 stats = if (next == VpnState.CONNECTED) current.stats else TrafficStats(),
                 details = if (next == VpnState.CONNECTED) current.details else ConnectionDetails(),
+                pausedForPortal = if (next == VpnState.CONNECTED ||
+                    next == VpnState.ERROR || next == VpnState.AUTH_FAILED
+                ) {
+                    false
+                } else {
+                    current.pausedForPortal
+                },
             )
         }
     }
@@ -164,7 +191,12 @@ object VpnController {
         val safe = LogSanitizer.sanitize(message)
         appendLog(LogLevel.ERROR, safe)
         _snapshot.update {
-            it.copy(state = VpnState.ERROR, error = safe, connectedAtMillis = null)
+            it.copy(
+                state = VpnState.ERROR,
+                error = safe,
+                connectedAtMillis = null,
+                pausedForPortal = false,
+            )
         }
     }
 

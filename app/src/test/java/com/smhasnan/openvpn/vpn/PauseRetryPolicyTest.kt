@@ -1,5 +1,6 @@
 package com.smhasnan.openvpn.vpn
 
+import kotlin.random.Random
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -46,5 +47,58 @@ class PauseRetryPolicyTest {
             "retry budget should span more than two minutes of delays",
             total >= 120_000L,
         )
+    }
+
+    @Test
+    fun jitterStaysWithinHalfToFullBaseDelay() {
+        val random = Random(42)
+        for (attempt in 1..(PauseRetryPolicy.MAX_ATTEMPTS + 4)) {
+            val base = PauseRetryPolicy.delayMsForAttempt(attempt)
+            repeat(50) {
+                val delay = PauseRetryPolicy.delayMsWithJitter(attempt, random)
+                assertTrue(
+                    "attempt $attempt delay $delay below ${base / 2}",
+                    delay >= base / 2,
+                )
+                assertTrue("attempt $attempt delay $delay above $base", delay <= base)
+            }
+        }
+    }
+
+    @Test
+    fun jitterIsDeterministicForTheSameSeed() {
+        val first = Random(7)
+        val second = Random(7)
+        for (attempt in 1..PauseRetryPolicy.MAX_ATTEMPTS) {
+            assertEquals(
+                PauseRetryPolicy.delayMsWithJitter(attempt, first),
+                PauseRetryPolicy.delayMsWithJitter(attempt, second),
+            )
+        }
+    }
+
+    @Test
+    fun jitterBoundsGrowMonotonicallyWithTheAttempt() {
+        var previousBoundsStart = 0L
+        for (attempt in 1..(PauseRetryPolicy.MAX_ATTEMPTS + 3)) {
+            val base = PauseRetryPolicy.delayMsForAttempt(attempt)
+            val lowerBound = base / 2
+            assertTrue(
+                "lower bound must not shrink at attempt $attempt",
+                lowerBound >= previousBoundsStart,
+            )
+            previousBoundsStart = lowerBound
+            assertTrue(base <= PauseRetryPolicy.MAX_DELAY_MS)
+        }
+    }
+
+    @Test
+    fun jitterNeverExceedsTheDeterministicCap() {
+        val random = Random(1234)
+        repeat(200) {
+            val delay = PauseRetryPolicy.delayMsWithJitter(PauseRetryPolicy.MAX_ATTEMPTS, random)
+            assertTrue(delay <= PauseRetryPolicy.MAX_DELAY_MS)
+            assertTrue(delay >= PauseRetryPolicy.MAX_DELAY_MS / 2)
+        }
     }
 }

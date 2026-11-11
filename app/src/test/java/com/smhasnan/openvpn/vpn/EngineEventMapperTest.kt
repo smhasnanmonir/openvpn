@@ -166,4 +166,115 @@ class EngineEventMapperTest {
         assertNull(mapped.state)
         assertEquals("NETWORK_EOF_ERROR", mapped.message)
     }
+
+    @Test
+    fun appTunHintOverridesGenericTunTerminalFailures() {
+        listOf(
+            "SESSION_FINISHED",
+            "TUN_SETUP_FAILED",
+            "TUN_ERROR",
+            "TUN_IFACE_CREATE",
+            "TUN_IFACE_DISABLED",
+            "CLIENT_HALT",
+        ).forEach { name ->
+            val mapped = EngineEventMapper.map(
+                name,
+                "tun_error",
+                error = true,
+                fatal = false,
+                tunHint = "DNS refused: no tunnel resolver is available.",
+            )
+            assertEquals(name, VpnState.ERROR, mapped.state)
+            assertEquals(name, "DNS refused: no tunnel resolver is available.", mapped.message)
+        }
+    }
+
+    @Test
+    fun sessionFinishedWithTunHintUsesTheAppReason() {
+        // Android builder failures surface as SESSION_FINISHED with a generic
+        // engine text; the app's own reason must be the one the user sees.
+        val mapped = EngineEventMapper.map(
+            "SESSION_FINISHED",
+            "tun_error",
+            error = true,
+            fatal = false,
+            tunHint = "DNS refused",
+        )
+        assertEquals(VpnState.ERROR, mapped.state)
+        assertEquals("DNS refused", mapped.message)
+    }
+
+    @Test
+    fun tunHintDoesNotAffectSuccessfulOrCleanEvents() {
+        val connected = EngineEventMapper.map(
+            "CONNECTED",
+            "",
+            error = false,
+            fatal = false,
+            tunHint = "some hint",
+        )
+        assertEquals(VpnState.CONNECTED, connected.state)
+        assertNull(connected.message)
+
+        val finished = EngineEventMapper.map(
+            "SESSION_FINISHED",
+            "clean shutdown",
+            error = false,
+            fatal = false,
+            tunHint = "some hint",
+        )
+        assertEquals(VpnState.DISCONNECTED, finished.state)
+        assertNull(finished.message)
+    }
+
+    @Test
+    fun tunHintDoesNotAffectAuthOrChallengeEvents() {
+        val auth = EngineEventMapper.map(
+            "AUTH_FAILED",
+            "bad password",
+            error = true,
+            fatal = true,
+            tunHint = "some hint",
+        )
+        assertEquals(VpnState.AUTH_FAILED, auth.state)
+        assertEquals("bad password", auth.message)
+
+        val challenge = EngineEventMapper.map(
+            "DYNAMIC_CHALLENGE",
+            "Enter token",
+            error = false,
+            fatal = false,
+            tunHint = "some hint",
+        )
+        assertEquals(VpnState.NEEDS_CHALLENGE, challenge.state)
+        assertEquals("Enter token", challenge.message)
+    }
+
+    @Test
+    fun tunHintDoesNotOverrideUnrelatedErrorEvents() {
+        val mapped = EngineEventMapper.map(
+            "CERT_VERIFY_FAIL",
+            "",
+            error = true,
+            fatal = true,
+            tunHint = "some hint",
+        )
+        assertEquals(VpnState.ERROR, mapped.state)
+        assertFalse(mapped.message!!.contains("some hint"))
+        assertTrue(mapped.message!!.contains("certificate", ignoreCase = true))
+    }
+
+    @Test
+    fun rekeyHintStillWinsForKeyExportFailuresWithoutATunHint() {
+        val mapped = EngineEventMapper.map(
+            "SESSION_FINISHED",
+            "client_connect_unhandled_exception",
+            error = true,
+            fatal = false,
+            rekeyHint = true,
+            tunHint = null,
+        )
+        assertEquals(VpnState.ERROR, mapped.state)
+        assertTrue(mapped.message!!.contains("key renegotiation", ignoreCase = true))
+    }
 }

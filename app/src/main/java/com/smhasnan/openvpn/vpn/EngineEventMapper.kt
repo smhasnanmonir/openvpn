@@ -37,12 +37,25 @@ object EngineEventMapper {
         val requiresChallenge: Boolean = false,
     )
 
+    /** Events that end (or fail) the TUN setup and should carry the app's own reason. */
+    private val TUN_TERMINAL_EVENTS = setOf(
+        "SESSION_FINISHED",
+        "TUN_SETUP_FAILED",
+        "TUN_ERROR",
+        "TUN_IFACE_CREATE",
+        "TUN_IFACE_DISABLED",
+        "CLIENT_HALT",
+    )
+
     /**
      * @param rekeyHint true when the engine's log for this session contains a
      *   TLS keying-material export failure. Core reports the rekey failure as
      *   the generic `client_connect_unhandled_exception` text, so the event
      *   payload alone cannot distinguish it from other unhandled exceptions;
      *   the caller supplies the hint from the preceding engine log line.
+     * @param tunHint non-null when the app refused to build the TUN (DNS leak
+     *   policy, split-tunnel policy, Android builder failure). Core's own event
+     *   text for this case is generic, so the app's reason takes precedence.
      */
     fun map(
         name: String,
@@ -50,6 +63,19 @@ object EngineEventMapper {
         error: Boolean,
         fatal: Boolean,
         rekeyHint: Boolean = false,
+        tunHint: String? = null,
+    ): Mapped = when {
+        tunHint != null && error && name in TUN_TERMINAL_EVENTS ->
+            Mapped(VpnState.ERROR, tunHint)
+        else -> mapEvent(name, info, error, fatal, rekeyHint)
+    }
+
+    private fun mapEvent(
+        name: String,
+        info: String,
+        error: Boolean,
+        fatal: Boolean,
+        rekeyHint: Boolean,
     ): Mapped = when (name) {
         "CONNECTING" -> Mapped(VpnState.CONNECTING, clearError = true)
         "CONNECTED" -> Mapped(VpnState.CONNECTED, clearError = true)
