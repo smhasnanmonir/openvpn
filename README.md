@@ -220,7 +220,7 @@ certificate digest documented in [docs/testing.md](docs/testing.md).
 - Ninja
 - Network access for the first dependency fetch
 
-The build uses the Gradle wrapper (`gradlew`, Gradle 9.6.0), AGP 9.4.1 and the
+The build uses the Gradle wrapper (`gradlew`, Gradle 9.9.1), AGP 9.5.1 and the
 Kotlin 2.4.21 compiler bundled with AGP's built-in Kotlin support. Pinned native
 dependencies are downloaded by `scripts/fetch-native-deps.sh` and verified with
 SHA-256. OpenVPN Core is a git submodule pinned to an immutable commit.

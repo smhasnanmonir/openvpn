@@ -172,7 +172,8 @@ Pinned inputs:
 - OpenVPN Core submodule commit `10c6a56cb17fd015a2d24953c3c42145bbcdea58`;
 - native dependencies by archive SHA-256 in `scripts/fetch-native-deps.sh`;
 - asio OpenVPN patches from the core submodule;
-- Gradle wrapper 9.6.0, AGP 9.4.1, Kotlin 2.4.21;
+- Gradle wrapper 9.9.1, AGP 9.5.1, Kotlin 2.4.21, compileSdk 37, Compose BOM
+  2026.09.00;
 - `minSdk/targetSdk/compileSdk`, NDK, and CMake versions documented in
   `README.md`.
 

@@ -679,13 +679,70 @@ removed after the attempt.
 - Physical-device leak matrix rows; see `docs/security/leak-test-matrix.md`.
 - MASVS/ASVS assessment and independent penetration test (not performed).
 
+## Toolchain and dependency upgrade (v1.5.0, 2026-11-11)
+
+The four skipped Dependabot PRs (AGP 9, Gradle wrapper 9, the Kotlin/AndroidX
+group, Compose BOM 2026) were one coordinated upgrade: AGP 9 cannot run on
+Gradle 8 and requires Kotlin >= 2.2.10, and the new AndroidX/Compose artifacts
+require compileSdk 37 and AGP >= 9.1. The CI workflows were switched to the
+project Gradle wrapper first (PR #30), then the toolchain was upgraded (PR #31),
+and the dependency updates landed on top (#32 grouped updates, #28 Compose BOM);
+every PR passed `Build, test, lint` before merge.
+
+Environment: Windows host, JDK 17.0.20.8, Gradle wrapper **9.9.1**, AGP
+**9.5.1**, Kotlin **2.4.21** (AGP built-in Kotlin), compileSdk **37** (platform
+`android-37.0`), NDK 27.2.12479018, CMake 3.22.1, ABI `x86_64`, Compose BOM
+2026.09.00 (Compose 1.12.1 / Material3 1.4.0).
+
+Commands run and results:
+
+```bash
+./gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug \
+  :app:assembleDebug :app:assembleDebugAndroidTest
+./gradlew --no-daemon :app:assembleRelease :app:lintRelease -Pabis=x86_64
+```
+
+- Unit tests: **238 tests / 24 suites / 0 failures** (unchanged from v1.4.0).
+- Lint: **0 errors, 22 warnings** (was 45; AGP 9 lint plus the updated
+  dependency set).
+- Debug APK and instrumentation-test APK build; the release path (R8 full mode,
+  resource shrinking, `lintRelease`) builds too.
+- 16 KB gate on the debug APK and the release APK
+  (`scripts/check-16kb-alignment.sh`): `libnativevpn.so` and the new Compose 1.12
+  `libandroidx.graphics.path.so` have every `LOAD` segment `p_align=0x4000`,
+  `zipalign -c -P 16 4` OK. Local builds are `x86_64`-only; CI gates both ABIs.
+- Native build unchanged: the three generated core-header patches compile in;
+  the pre-existing OpenVPN 3 warnings are unchanged.
+- SBOM: `scripts/generate-sbom.sh` -> valid CycloneDX, 223 components.
+- CI: PR #30 (wrapper), #31 (toolchain), #32 (grouped dependency updates) and
+  #28 (Compose BOM) were green; `security.yml` is green on `main` after the
+  merges.
+
+Notes and residuals:
+
+- `:app:testReleaseUnitTest` no longer exists: AGP 9 enables the unit-test
+  component only for the tested build type by default, so the tag build runs
+  `:app:assembleRelease :app:lintRelease` instead.
+- The wrapper uses Gradle 9.9.1 rather than 9.9.0: 9.9.1 fixes a critical issue
+  where version-catalog values could run as code in generated accessors
+  (introduced in Gradle 9.3).
+- Hosted runners have no IPv6 route while `services.gradle.org` resolves to IPv6
+  first; the wrapper's bootstrap HTTPS connection does not fall back to IPv4, so
+  both workflows set `JAVA_OPTS=-Djava.net.preferIPv4Stack=true`.
+- Kotlin 2.4.21's official compatibility matrix lists Gradle <= 9.7.0 and
+  AGP <= 9.3.1, so AGP 9.5.1 + Gradle 9.9.1 is outside the fully-supported
+  window. It builds and passes every gate; revisit when Kotlin/AGP publish a
+  supported pairing.
+- No app behavior, security-policy or profile-format change: the v1.4.0
+  live-tunnel/device verification was not re-run for v1.5.0.
+
 ## What is verified vs. not verified
 
 | Check | Status |
 |---|---|
 | Debug APK builds | ✅ verified |
 | Both ABI native libraries build | ✅ verified |
-| Unit tests (225 on the backlog branch; 110 on PR #5) | ✅ verified |
+| Unit tests (238 on v1.4.0/v1.5.0; 225 on the backlog branch; 110 on PR #5) | ✅ verified |
 | Android lint | ✅ verified |
 | Signed, minified release APK | ✅ verified |
 | R8 keeps JNI callbacks | ✅ verified by dexdump |
@@ -711,7 +768,8 @@ removed after the attempt.
 The table above describes the PR #5 code base. The security/reliability backlog
 PR adds new JVM policy tests, the 16 KB CI gate, and SBOM generation; see the
 section above and `docs/security/leak-test-matrix.md` for its verification
-status.
+status. The v1.5.0 toolchain/dependency upgrade changes no app code; its
+unit/lint/native/release gates were re-run (see the v1.5.0 section above).
 
 ## Emulator/server evidence
 
