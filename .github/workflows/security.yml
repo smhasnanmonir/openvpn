@@ -59,8 +59,11 @@ jobs:
 
       - name: Generate SBOM (CycloneDX)
         env:
+          # Gradle rejects versionCode 0 ("should be a positive integer");
+          # this job only configures the project to generate the SBOM, it
+          # never publishes, so any positive placeholder version works.
           APP_VERSION: "0.0.0-scan"
-          APP_VERSION_CODE: "0"
+          APP_VERSION_CODE: "1"
         run: |
           export ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
           bash scripts/generate-sbom.sh --output build/sbom/sbom.cdx.json
