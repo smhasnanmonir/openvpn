@@ -18,9 +18,16 @@ Items that cannot be verified on the build host are marked as manual.
 - [ ] Debug APK builds and the **16 KB alignment gate** passes:
       `bash scripts/check-16kb-alignment.sh app/build/outputs/apk/debug/app-debug.apk`
       (every packaged `libnativevpn.so` `LOAD` segment `p_align >= 0x4000` and
-      `zipalign -c -P 16 4` succeeds). CI runs this on every build.
+      `zipalign -c -P 16 4` succeeds), and the default build packaged both
+      `lib/arm64-v8a/libnativevpn.so` and `lib/x86_64/libnativevpn.so`. CI runs
+      this on every build **and again on the signed release APK** for a tag.
 - [ ] Release unit tests, lint (0 errors), R8 build, and both ABIs pass.
-- [ ] Signed release APK verified with `apksigner verify --verbose`.
+- [ ] Signed release APK verified with
+      `apksigner verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk`.
+- [ ] The **release APK** passes the same 16 KB alignment gate and both default
+      ABIs are packaged (`unzip -l app-release.apk | grep -E
+      'lib/(arm64-v8a|x86_64)/libnativevpn\.so'`). CI runs this before
+      publishing; re-run it on the downloaded artifact if the build was manual.
 - [ ] JNI callback names survive R8 (`-keep` rules) — checked with `dexdump` or
       an emulator smoke test (native session creation + crypto self-test).
 - [ ] `gradlew :app:testReleaseUnitTest` passes.
@@ -33,8 +40,17 @@ Items that cannot be verified on the build host are marked as manual.
 - [ ] No keystore, password, token, API key, real profile, or private key is in
       the tree or the artifact (`gitleaks` in the scheduled security workflow,
       plus a manual `git grep` for obvious markers).
-- [ ] `android:debuggable` is false in the release build; `apksigner verify`
-      reports the release certificate, not the debug certificate.
+- [ ] `android:debuggable` is false in the release build; `apksigner verify
+      --print-certs` reports the release certificate, not the debug certificate.
+- [ ] `apksigner verify --print-certs` certificate SHA-256 is
+      `834d2a58261a6c4113a3170953c1eea4a30d65ebc5ba4386408f09039dd00c9c`
+      (the v1.3.0 release key, pinned in `android.yml` as
+      `RELEASE_CERT_SHA256`). A different digest means the wrong keystore was
+      used: do not publish the tag.
+- [ ] `aapt2 dump badging` on the release APK reports `versionName` equal to the
+      tag without its leading `v` and `versionCode` greater than 45 (v1.3.0's
+      version code); there is no `application-debuggable` entry. CI asserts
+      these and fails the tag build otherwise.
 - [ ] The APK does not contain a debug/test-only manifest flag, test-only
       activity, or debug `BuildConfig` value that changes security behaviour.
 
@@ -82,8 +98,13 @@ Items that cannot be verified on the build host are marked as manual.
 
 - [ ] SBOM generated for the release
       (`bash scripts/generate-sbom.sh`), JSON is valid, and it lists the app
-      version, OpenVPN Core 3.9 `10c6a56`, mbedTLS/asio/fmt/jsoncpp/lz4
-      versions, NDK `27.2.12479018`, and the Gradle runtime classpath.
+      version, OpenVPN Core 3.9 `10c6a56` (read from the submodule gitlink; the
+      script fails if the submodule is missing or not at the pin),
+      mbedTLS/asio/fmt/jsoncpp/lz4 versions, NDK `27.2.12479018`, and the Gradle
+      runtime classpath. Native upstream dependencies are recorded as
+      `pkg:github/<org>/<repo>` purls so the advisory scan can map them; asio is
+      recorded as `1.24.0` with the OpenVPN patch count in the
+      `openvpn:patches` property.
 - [ ] SBOM attached to the GitHub Release (CI does this on `v*` tags) and
       archived with the release records.
 - [ ] The scheduled security workflow (`.github/workflows/security.yml`) has
@@ -100,7 +121,9 @@ Items that cannot be verified on the build host are marked as manual.
 ## 6. Verification evidence
 
 - [ ] Automated subset recorded: JVM unit tests (`:app:testDebugUnitTest`),
-      lint, debug/release builds, 16 KB gate, SBOM, scheduled scan status.
+      lint, debug/release builds, 16 KB + ABI gate on both the debug and
+      signed release APKs, release certificate/version/badging assertions, SBOM,
+      scheduled scan status.
 - [ ] Device/manual checks that are required for the release scope are listed
       with results in [`docs/testing.md`](../testing.md); anything not run is
       explicitly marked "not verified" rather than assumed.
@@ -113,7 +136,24 @@ Items that cannot be verified on the build host are marked as manual.
 
 ## 7. Post-release
 
-- [ ] Tag pushed and GitHub Release published with the signed APK and SBOM.
+- [ ] Tag pushed and GitHub Release published with the signed APK and SBOM
+      (`app-release.apk`, `sbom.cdx.json`; `fail_on_unmatched_files` makes a
+      missing asset fail the release job).
+- [ ] Download the **published** APK and re-run the release gates on that exact
+      artifact (CI gates the built file, not the uploaded copy):
+
+      ```bash
+      gh release download v1.3.0 --pattern app-release.apk
+      bash scripts/check-16kb-alignment.sh app-release.apk
+      unzip -l app-release.apk | grep -E 'lib/(arm64-v8a|x86_64)/libnativevpn\.so'
+      "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs app-release.apk
+      "$ANDROID_HOME/build-tools/35.0.0/aapt2" dump badging app-release.apk | head -n 1
+      ```
+
+      Confirm certificate SHA-256
+      `834d2a58261a6c4113a3170953c1eea4a30d65ebc5ba4386408f09039dd00c9c`,
+      the tag's `versionName`, `versionCode > 45`, both ABIs, and that the
+      release assets include the SBOM.
 - [ ] Release certificate digest and APK `sha256` recorded (the APK hash is not
       reproducible; compare the certificate digest and `aapt2` badging).
 - [ ] Store listing and privacy policy URL re-checked after publishing.

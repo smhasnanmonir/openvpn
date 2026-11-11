@@ -4,9 +4,16 @@
 # The SBOM enumerates:
 #   * the app version/build (from APP_VERSION / APP_VERSION_CODE / git commit),
 #   * the pinned OpenVPN 3 Core version + commit and the native dependency
-#     versions parsed from docs/openvpn-core-integration.md,
+#     versions parsed from docs/openvpn-core-integration.md. The core commit is
+#     read from the git submodule gitlink (never scraped out of the doc) and the
+#     script fails when the submodule is missing or is not at the release pin,
 #   * the Android NDK version from app/build.gradle.kts,
 #   * the Gradle `releaseRuntimeClasspath` Maven coordinates.
+#
+# Native upstream dependencies use pkg:github/<org>/<repo> purls so OSV can map
+# them to advisories; the app component stays pkg:generic (it is not an upstream
+# package). The asio pin is recorded as its upstream version plus the
+# openvpn:patches property for the OpenVPN patch count.
 #
 # Usage:
 #   scripts/generate-sbom.sh [--output <file>] [--skip-gradle] [--dependencies-file <file>]
@@ -93,12 +100,35 @@ if [[ ! -f "$CORE_DOC" ]]; then
   exit 2
 fi
 
-# Commit: the 40-char commit in the Pinned revision table.
-CORE_COMMIT="$(grep -oE '[0-9a-f]{40}' "$CORE_DOC" | head -n 1 || true)"
+# OpenVPN Core commit: the gitlink recorded in HEAD, not a 40-hex scrape out of
+# the doc. A populated submodule must also be checked out at that exact commit;
+# either mismatch means the SBOM would name a different core than the one that
+# was built, so both are release blockers (non-zero exit), not warnings.
+EXPECTED_CORE_COMMIT="10c6a56cb17fd015a2d24953c3c42145bbcdea58"
+SUBMODULE_PATH="third_party/openvpn3"
+CORE_COMMIT="$(git ls-tree HEAD -- "$SUBMODULE_PATH" 2>/dev/null | awk '$2 == "commit" { print $3; exit }' || true)"
+if [[ -z "$CORE_COMMIT" ]]; then
+  err "could not read the $SUBMODULE_PATH submodule commit from git (run inside a git checkout that has .gitmodules)"
+  exit 1
+fi
+if [[ "$CORE_COMMIT" != "$EXPECTED_CORE_COMMIT" ]]; then
+  err "$SUBMODULE_PATH gitlink is $CORE_COMMIT but the release pin is $EXPECTED_CORE_COMMIT; bump the pin deliberately or restore the submodule"
+  exit 1
+fi
+if ! git -C "$SUBMODULE_PATH" rev-parse --verify HEAD >/dev/null 2>&1; then
+  err "$SUBMODULE_PATH is not checked out; run 'git submodule update --init --recursive' (CI checks out submodules for this reason)"
+  exit 1
+fi
+ACTUAL_CORE_COMMIT="$(git -C "$SUBMODULE_PATH" rev-parse HEAD)"
+if [[ "$ACTUAL_CORE_COMMIT" != "$EXPECTED_CORE_COMMIT" ]]; then
+  err "$SUBMODULE_PATH is checked out at $ACTUAL_CORE_COMMIT but the release pin is $EXPECTED_CORE_COMMIT (stale submodule checkout)"
+  exit 1
+fi
+
 # Version: "release/3.9" tag row.
 CORE_VERSION="$(grep -E '^\| *Tag *\|' "$CORE_DOC" | head -n 1 | sed -E 's/.*`release\/([^`]+)`.*/\1/' || true)"
-if [[ -z "$CORE_COMMIT" || -z "$CORE_VERSION" ]]; then
-  err "could not parse the OpenVPN Core pin from $CORE_DOC"
+if [[ -z "$CORE_VERSION" ]]; then
+  err "could not parse the OpenVPN Core tag from $CORE_DOC"
   exit 2
 fi
 
@@ -116,10 +146,17 @@ dep_version() {
 }
 
 MBEDTLS_VERSION="$(dep_version mbedTLS)"
-ASIO_VERSION="$(dep_version asio)"
+ASIO_RAW_VERSION="$(dep_version asio)"
 FMT_VERSION="$(dep_version fmt)"
 JSONCPP_VERSION="$(dep_version jsoncpp)"
 LZ4_VERSION="$(dep_version lz4)"
+
+# The doc pins asio as "1.24.0 + 7 OpenVPN patches" (whitespace stripped above).
+# The SBOM needs the upstream semantic version for vulnerability matching and
+# keeps the OpenVPN patch count as the separate openvpn:patches property.
+ASIO_VERSION="$(printf '%s' "$ASIO_RAW_VERSION" | grep -oE '^[0-9]+(\.[0-9]+)+' || true)"
+ASIO_PATCHES="$(printf '%s' "$ASIO_RAW_VERSION" | sed -E 's/^[0-9]+(\.[0-9]+)+//' | grep -oE '[0-9]+' | head -n 1 || true)"
+
 for pair in "mbedTLS:$MBEDTLS_VERSION" "asio:$ASIO_VERSION" "fmt:$FMT_VERSION" "jsoncpp:$JSONCPP_VERSION" "lz4:$LZ4_VERSION"; do
   if [[ -z "${pair#*:}" ]]; then
     err "could not parse ${pair%%:*} version from $CORE_DOC"
@@ -130,18 +167,6 @@ done
 # --- NDK version ------------------------------------------------------------
 NDK_VERSION="$(sed -nE 's/^[[:space:]]*ndkVersion[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' app/build.gradle.kts | head -n 1)"
 [[ -n "$NDK_VERSION" ]] || NDK_VERSION="27.2.12479018"
-
-# Cross-check the checked-out submodule against the documented pin (when the
-# submodule is initialized). A mismatch is a loud warning: the SBOM records the
-# actual checked-out commit.
-ACTUAL_CORE_COMMIT=""
-if [[ -f third_party/openvpn3/client/ovpncli.hpp ]]; then
-  ACTUAL_CORE_COMMIT="$(git -C third_party/openvpn3 rev-parse HEAD 2>/dev/null || true)"
-  if [[ -n "$ACTUAL_CORE_COMMIT" && "$ACTUAL_CORE_COMMIT" != "$CORE_COMMIT" ]]; then
-    log "WARNING: third_party/openvpn3 is at $ACTUAL_CORE_COMMIT but $CORE_DOC pins $CORE_COMMIT"
-    CORE_COMMIT="$ACTUAL_CORE_COMMIT"
-  fi
-fi
 
 # --- Gradle runtime classpath ----------------------------------------------
 DEPS_TMP="$(mktemp "${TMPDIR:-/tmp}/sbom-deps.XXXXXX")"
@@ -183,6 +208,7 @@ log "Collected $DEP_COUNT Gradle runtime coordinates"
   "$CORE_COMMIT" \
   "$MBEDTLS_VERSION" \
   "$ASIO_VERSION" \
+  "$ASIO_PATCHES" \
   "$FMT_VERSION" \
   "$JSONCPP_VERSION" \
   "$LZ4_VERSION" \
@@ -203,6 +229,7 @@ import uuid
     core_commit,
     mbedtls_version,
     asio_version,
+    asio_patches,
     fmt_version,
     jsoncpp_version,
     lz4_version,
@@ -234,21 +261,36 @@ add({
     ],
     "properties": [{"name": "openvpn:commit", "value": core_commit}],
 })
-for name, version, desc in (
-    ("mbedtls", mbedtls_version, "mbedTLS (TLS/crypto backend)"),
-    ("asio", asio_version, "asio standalone (with OpenVPN patches)"),
-    ("fmt", fmt_version, "fmt"),
-    ("jsoncpp", jsoncpp_version, "jsoncpp"),
-    ("lz4", lz4_version, "lz4"),
+for name, version, upstream, desc, patches in (
+    ("mbedtls", mbedtls_version, "Mbed-TLS/mbedtls", "mbedTLS (TLS/crypto backend)", ""),
+    (
+        "asio",
+        asio_version,
+        "chriskohlhoff/asio",
+        "asio standalone (upstream release; OpenVPN patch set applied in the native build)",
+        asio_patches,
+    ),
+    ("fmt", fmt_version, "fmtlib/fmt", "fmt", ""),
+    ("jsoncpp", jsoncpp_version, "open-source-parsers/jsoncpp", "jsoncpp", ""),
+    ("lz4", lz4_version, "lz4/lz4", "lz4", ""),
 ):
-    add({
+    # pkg:github/<org>/<repo> purls are mappable to OSV advisories; pkg:generic
+    # is not. These are all upstream OSS repositories.
+    purl = "pkg:github/{}@{}".format(upstream, version)
+    component = {
         "type": "library",
-        "bom-ref": "pkg:generic/{}@{}".format(name, version),
+        "bom-ref": purl,
         "name": name,
         "version": version,
         "description": desc,
-        "purl": "pkg:generic/{}@{}".format(name, version),
-    })
+        "purl": purl,
+        "externalReferences": [
+            {"type": "vcs", "url": "https://github.com/{}".format(upstream)},
+        ],
+    }
+    if patches:
+        component["properties"] = [{"name": "openvpn:patches", "value": patches}]
+    add(component)
 
 # Android NDK toolchain.
 add({

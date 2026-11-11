@@ -20,6 +20,12 @@ The revision is immutable and present as a git submodule. Update it only by
 changing the submodule commit, re-running the native build, and reviewing the
 license delta.
 
+`scripts/generate-sbom.sh` reads this commit from the git submodule gitlink
+(`git ls-tree HEAD third_party/openvpn3`), not from this table, and fails when
+the submodule is missing, is checked out at another commit, or resolves to a
+different pin than the release commit. This keeps the SBOM tied to the exact
+core revision that was built.
+
 ## Actual source files used
 
 | Path (inside `third_party/openvpn3`) | Purpose |
@@ -280,6 +286,14 @@ Pinned dependencies:
 | jsoncpp | 1.9.6 | `f93b6dd7ce796b13d02c108bc9f79812245a82e577581c4c9aabe57075c90ea2` |
 | lz4 | 1.9.4 | `0b0e3aa07c8c063ddf40b082bdf7e37a1562bda40a0ff5272957f3e987e0e54b` |
 | mbedTLS | 3.6.2 | `8b54fb9bcf4d5a7078028e0520acddefb7900b3e66fec7f7175bb5b7d85ccdca` |
+
+The SBOM records these upstream dependencies as `pkg:github/<org>/<repo>`
+purls (mbedtls → `Mbed-TLS/mbedtls`, asio → `chriskohlhoff/asio`, fmt →
+`fmtlib/fmt`, jsoncpp → `open-source-parsers/jsoncpp`, lz4 → `lz4/lz4`) so OSV
+can map them to advisories. asio is recorded with the upstream version `1.24.0`
+and the OpenVPN patch count as the `openvpn:patches` property (currently `7`);
+the `+ 7 OpenVPN patches` suffix above is the human-readable form of the same
+pin.
 
 Commands:
 

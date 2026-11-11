@@ -29,6 +29,10 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          # scripts/generate-sbom.sh reads the OpenVPN Core commit from the
+          # third_party/openvpn3 gitlink and requires the submodule to be
+          # checked out at the release pin, so the scan fails closed on drift.
+          submodules: recursive
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -69,16 +73,19 @@ jobs:
           if-no-files-found: error
 
       - name: Scan SBOM with OSV-Scanner
-        # Pinned Docker action; the reusable-workflow variant would require
-        # `security-events: write`, but this workflow keeps read-only
-        # permissions. `--sbom=` is retained (deprecated in osv-scanner v2 in
-        # favour of -L) because it applies the dedicated SBOM extractors; the
-        # file name follows the CycloneDX `.cdx.json` convention required by
-        # the scanner.
-        uses: google/osv-scanner-action/osv-scanner-action@v2.7.1
-        with:
-          scan-args: |-
-            --sbom=build/sbom/sbom.cdx.json
+        # Run the pinned official scanner image directly. The osv-scanner-action
+        # repository explicitly documents its action as "not intended to be used
+        # directly"; its reusable workflows set --format/--output themselves and
+        # expect SARIF/code-scanning permissions, which this read-only workflow
+        # does not grant. The generated CycloneDX SBOM is the only artifact that
+        # covers the Gradle runtime classpath and the pinned native dependencies,
+        # so it is scanned as an explicit lockfile.
+        run: |
+          docker run --rm \
+            -v "$PWD:/src" \
+            -w /src \
+            ghcr.io/google/osv-scanner:v2.7.1 \
+            scan source -L /src/build/sbom/sbom.cdx.json --format=table
 
   secret-scan:
     name: Secret scan (gitleaks)
@@ -94,3 +101,6 @@ jobs:
         uses: gitleaks/gitleaks-action@v3.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Repository config: keeps the default rules but allowlists the
+          # documented instrumentation-test fixture with a justification.
+          GITLEAKS_CONFIG: .gitleaks.toml

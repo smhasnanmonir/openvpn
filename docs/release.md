@@ -55,6 +55,22 @@ Verify:
   app/build/outputs/apk/release/app-release.apk
 ```
 
+The v1.3.0 release certificate is the project's release identity; its SHA-256
+digest is pinned in `android.yml` (`RELEASE_CERT_SHA256`) and the tag build
+fails if a different key signed the APK:
+
+```bash
+"$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs \
+  app/build/outputs/apk/release/app-release.apk | grep 'certificate SHA-256'
+# expected: 834d2a58261a6c4113a3170953c1eea4a30d65ebc5ba4386408f09039dd00c9c
+```
+
+The same step also asserts the published artifact's identity with
+`aapt2 dump badging`: `versionName` must equal the tag without its leading `v`,
+`versionCode` must be greater than 45 (v1.3.0's version code), the APK must not
+be debuggable, and `build/sbom/sbom.cdx.json` must exist. Rotate the pinned
+digest only when the release key itself is rotated.
+
 ## GitHub Actions
 
 `.github/workflows/android.yml` runs on every push/PR:
@@ -63,9 +79,11 @@ Verify:
 2. install JDK 17, Android SDK 35, NDK 27.2.12479018, CMake 3.22.1;
 3. restore/build checksum-verified native dependencies;
 4. run unit tests, lint, debug APK build, instrumentation-test APK build;
-5. verify 16 KB page-size compatibility on the built APK
+5. verify 16 KB page-size compatibility on the debug APK
    (`bash scripts/check-16kb-alignment.sh`: every packaged `.so` `LOAD` segment
-   `p_align >= 0x4000`, plus `zipalign -c -P 16 4`);
+   `p_align >= 0x4000`, plus `zipalign -c -P 16 4`) and assert that the default
+   build packaged both `lib/arm64-v8a/libnativevpn.so` and
+   `lib/x86_64/libnativevpn.so`;
 6. generate the CycloneDX SBOM (`bash scripts/generate-sbom.sh`) and upload it
    as an artifact;
 7. upload debug artifacts.
@@ -73,9 +91,18 @@ Verify:
 On a `v*` tag it additionally:
 
 1. decodes the release keystore from secrets;
-2. builds a minified signed release APK;
-3. verifies the APK signature;
-4. creates a GitHub Release and uploads the signed APK **and the SBOM**
+2. builds a minified signed release APK (`:app:assembleRelease`,
+   `:app:testReleaseUnitTest`, `:app:lintRelease`);
+3. runs the same 16 KB alignment gate and default-ABI assertion on the
+   **release** APK (`app/build/outputs/apk/release/app-release.apk`) — the
+   released artifact is not allowed to rely on debug-only checks;
+4. verifies the APK signature and asserts artifact identity: the signer
+   certificate SHA-256 must be the v1.3.0 release key
+   (`834d2a58261a6c4113a3170953c1eea4a30d65ebc5ba4386408f09039dd00c9c`),
+   `aapt2 dump badging` must report `versionName` equal to the tag without its
+   leading `v` and `versionCode` greater than 45 (v1.3.0), the APK must not be
+   debuggable, and `build/sbom/sbom.cdx.json` must exist;
+5. creates a GitHub Release and uploads the signed APK **and the SBOM**
    (`sbom.cdx.json`).
 
 `.github/workflows/security.yml` is **not** a required PR check. It runs on
@@ -83,7 +110,10 @@ pushes to `main`, on a weekly schedule, and by manual dispatch, with
 `permissions: contents: read`:
 
 - generates the SBOM and scans it with `osv-scanner` for known advisories;
-- runs `gitleaks` secret scanning over the repository history.
+- runs `gitleaks` secret scanning over the repository history using the
+  repository `.gitleaks.toml`, which keeps the default rules and allowlists only
+  the documented throwaway instrumentation-test fixture
+  (`app/src/androidTest/assets/test-profile.ovpn`).
 
 `.github/dependabot.yml` opens weekly update PRs for Gradle dependencies and
 GitHub Actions.
@@ -114,11 +144,16 @@ git push origin v1.0.0
 ```
 
 `APP_VERSION` derives from the tag (without `v`); `APP_VERSION_CODE` uses the
-GitHub run number. For a reproducible local build set both explicitly:
+GitHub run number. The workflow validates the code before exporting it (a
+non-numeric or non-positive value fails the build instead of silently
+defaulting) and the release gate requires `versionCode > 45` (v1.3.0).
+For a reproducible local build set both explicitly:
 
 ```bash
-APP_VERSION=1.0.0 APP_VERSION_CODE=1 ./gradlew :app:assembleRelease
+APP_VERSION=1.3.0 APP_VERSION_CODE=46 ./gradlew :app:assembleRelease
 ```
+
+For a release, use a code greater than the last published `versionCode`.
 
 ## Reproducibility
 
@@ -154,11 +189,21 @@ build-specific minimum is:
 
 - [ ] `./scripts/build-native-deps.sh arm64-v8a x86_64` passes.
 - [ ] `./gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug` passes.
-- [ ] 16 KB gate passes:
-      `bash scripts/check-16kb-alignment.sh app/build/outputs/apk/debug/app-debug.apk`.
-- [ ] SBOM generated (`bash scripts/generate-sbom.sh`) and valid JSON.
+- [ ] 16 KB + ABI gates pass on the debug APK:
+      `bash scripts/check-16kb-alignment.sh app/build/outputs/apk/debug/app-debug.apk`
+      and `unzip -l app-debug.apk | grep -E 'lib/(arm64-v8a|x86_64)/libnativevpn\.so'`
+      both present.
+- [ ] `bash scripts/generate-sbom.sh` produces valid CycloneDX JSON and fails if
+      the `third_party/openvpn3` submodule is missing or not at the pinned
+      commit.
 - [ ] `./gradlew :app:assembleRelease :app:testReleaseUnitTest :app:lintRelease` passes.
-- [ ] `apksigner verify` passes.
+- [ ] Release APK gates pass: `bash scripts/check-16kb-alignment.sh
+      app/build/outputs/apk/release/app-release.apk`; both default ABIs packaged
+      (`unzip -l`); `apksigner verify --print-certs` reports certificate SHA-256
+      `834d2a58261a6c4113a3170953c1eea4a30d65ebc5ba4386408f09039dd00c9c`;
+      `aapt2 dump badging` reports the expected `versionName`, `versionCode > 45`,
+      and no `application-debuggable`.
+- [ ] SBOM exists (`build/sbom/sbom.cdx.json`) and is uploaded with the release.
 - [ ] JNI callback names still present in R8 output (`dexdump`).
 - [ ] Device test matrix in `docs/testing.md` completed, with results recorded.
 - [ ] License/notices reviewed for the pinned core revision (AGPL-3.0-only at 3.9).
