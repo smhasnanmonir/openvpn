@@ -2,7 +2,6 @@ import java.util.Properties
 
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
 }
 
@@ -24,7 +23,7 @@ val releaseKeyPassword = System.getenv("RELEASE_KEY_PASSWORD")
 
 android {
     namespace = "com.smhasnan.openvpn"
-    compileSdk = 35
+    compileSdk = 37
     ndkVersion = "27.2.12479018"
 
     defaultConfig {

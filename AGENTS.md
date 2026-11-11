@@ -102,10 +102,12 @@ scripts/                       # build/fetch native deps, check-16kb-alignment.s
 
 Key facts:
 
-- `minSdk=26`, `compileSdk=35`, `targetSdk=35`, version from `APP_VERSION` env
+- `minSdk=26`, `compileSdk=37`, `targetSdk=35`, version from `APP_VERSION` env
   (default 1.0.0 locally).
 - ABIs default `arm64-v8a,x86_64`; override with `-Pabis=...`.
-- NDK `27.2.12479018`, CMake `3.22.1`, Gradle `8.11.1`, AGP `8.7.3`, JVM 17.
+- NDK `27.2.12479018`, CMake `3.22.1`, Gradle wrapper `9.6.0`, AGP `9.4.1`,
+  Kotlin `2.4.21` (AGP 9 built-in Kotlin; the `org.jetbrains.kotlin.android`
+  plugin is no longer applied), JVM 17.
 - OpenVPN Core is a **pinned submodule** `third_party/openvpn3` @
   `10c6a56cb17fd015a2d24953c3c42145bbcdea58` (release/3.9). **Never modify the
   submodule**; compatibility fixes are build-time patches (§4.1).
@@ -124,7 +126,7 @@ Key facts:
 | Android SDK | `ANDROID_HOME=C:\Users\monir\AppData\Local\Android\Sdk` |
 | NDK | `<SDK>\ndk\27.2.12479018` |
 | CMake | `<SDK>\cmake\3.22.1` |
-| Gradle | wrapper `.\gradlew.bat` (8.11.1); user Gradle cache is warm |
+| Gradle | wrapper `.\gradlew.bat` (9.6.0); user Gradle cache is warm |
 | Submodule | `git submodule update --init --recursive` (needed for native builds) |
 | Native deps | CMake needs `app/src/main/cpp/deps/<abi>/lib/libmbedtls.a`. On this host **x86_64 may be prebuilt; arm64 may need `scripts/build-native-deps.sh arm64-v8a`**. CI builds both. |
 
@@ -206,7 +208,9 @@ Notes/gotchas:
 ### 3.5 CI
 
 `.github/workflows/android.yml`, job “Build, test, lint” on every push/PR:
-checkout with submodules, JDK 17, Gradle 8.11.1, install SDK/NDK/CMake, build
+checkout with submodules, JDK 17, the **project Gradle wrapper** (9.6.0; CI
+fails if the wrapper distribution and `./gradlew` disagree), install SDK 37 /
+NDK / CMake, build
 native deps for both ABIs, then:
 
 ```
