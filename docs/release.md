@@ -81,7 +81,11 @@ digest only when the release key itself is rotated.
 4. run unit tests, lint, debug APK build, instrumentation-test APK build through
    the **project Gradle wrapper** (`./gradlew`); CI fails if the wrapper
    distribution in `gradle/wrapper/gradle-wrapper.properties` is not the Gradle
-   version that `./gradlew` reports, so a wrapper bump is really exercised;
+   version that `./gradlew` reports, so a wrapper bump is really exercised
+   (the workflow sets `JAVA_OPTS=-Djava.net.preferIPv4Stack=true` because
+   hosted runners have no IPv6 route while `services.gradle.org` resolves to
+   IPv6 first; the wrapper bootstraps with a plain HTTPS connection that does
+   not fall back to IPv4);
 5. verify 16 KB page-size compatibility on the debug APK
    (`bash scripts/check-16kb-alignment.sh`: every packaged `.so` `LOAD` segment
    `p_align >= 0x4000`, plus `zipalign -c -P 16 4`) and assert that the default

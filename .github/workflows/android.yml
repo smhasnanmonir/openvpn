@@ -19,6 +19,12 @@ jobs:
     name: Build, test, lint
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    env:
+      # Hosted runners have no IPv6 route while services.gradle.org resolves to
+      # IPv6 first. The Gradle wrapper downloads its distribution with a plain
+      # HttpsURLConnection (no IPv4 fallback), which fails with "Network is
+      # unreachable"; force the JVM to use IPv4 so `./gradlew` can bootstrap.
+      JAVA_OPTS: "-Djava.net.preferIPv4Stack=true"
     steps:
       - name: Checkout with pinned OpenVPN Core submodule
         uses: actions/checkout@v7

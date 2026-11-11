@@ -24,6 +24,10 @@ jobs:
     name: SBOM advisory scan (osv-scanner)
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    env:
+      # Same wrapper-bootstrap workaround as android.yml: hosted runners have no
+      # IPv6 route while services.gradle.org resolves to IPv6 first.
+      JAVA_OPTS: "-Djava.net.preferIPv4Stack=true"
     steps:
       - name: Checkout
         uses: actions/checkout@v7
