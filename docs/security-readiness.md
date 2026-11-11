@@ -90,8 +90,8 @@ Legend:
 | Metered network inheritance | ✅ | `Builder.setMetered()` follows the underlying network on Android 10+ (PR #5). |
 | 16 KB page size | ✅ CI gate | See the dedicated row under "Kill switch and leak protection"; CI rejects misaligned packaged libraries (#12). |
 | App hardening | 🟡 | No backup, no cleartext, restricted exports, R8, hidden native symbols. `FLAG_SECURE`, integrity/tamper checks, and a device matrix are not implemented (see #21 / MASVS assessment). |
-| Split tunneling | ❌ | Tracked in #17. |
-| Captive portals | ❌ | Tracked in #18. |
+| Split tunneling | ✅ code / device pending | Off/Include/Exclude with per-app picker, fail-closed zero-app validation, stale-package filtering, persistent bypass warnings (ADR-011, #17). Device leak rows L-34–L-37 are not executed yet. |
+| Captive portals | ✅ code / device pending | Capability detection, "Pause VPN to sign in", honest `pausedForPortal` state, auto-resume on validation (ADR-012, #18). Real-portal verification (L-28–L-30) is pending. |
 
 ## Reliability and user experience
 
@@ -113,9 +113,9 @@ Legend:
 | No analytics/crash reporter/backend | ✅ | The app has no Firebase/analytics/crash SDK. |
 | Public-IP check disclosure | ✅ | HTTPS to `api.ipify.org`; no credentials/profile data; can be disabled; disclosed in the privacy policy. |
 | Package visibility (split tunneling) | ✅ / store declaration pending | `QUERY_ALL_PACKAGES` declared for the per-app selector; package list used locally only, never transmitted/logged; Play restricted-permission declaration wording prepared (`docs/legal/play-store-vpn-disclosure.md`). |
-| Privacy policy and Play VpnService disclosure | ✅ docs / publication pending | Complete privacy policy and Play VpnService/Data-safety/specialUse/`QUERY_ALL_PACKAGES` documents added under `docs/legal/`; publishing the policy URL and submitting the Console declarations are manual release steps (#15). |
-| Store/legal requirements | 🟡 | Release compliance checklist added (`docs/compliance/release-checklist.md`); store submission, target-market/legal review, and privacy-policy hosting remain manual (#15). |
-| Backend/iOS scope decisions | ✅ docs | ADR-014 + `docs/architecture/backend-control-plane.md`; ADR-015 + `docs/architecture/ios-plan.md`; explicitly not implemented (#16/#20). |
+| Privacy policy and Play VpnService disclosure | ✅ docs + public URL / Console pending | Complete policy and Play VpnService/Data-safety/specialUse/`QUERY_ALL_PACKAGES` documents under `docs/legal/`, with the canonical public URL, publication runbook and Console checklist in `docs/legal/README.md`. Settings → About links to the policy (`BuildConfig.PRIVACY_POLICY_URL`). Entering the URL and submitting declarations is manual (#15). |
+| Store/legal requirements | 🟡 | Release compliance checklist covers store/legal gates (`docs/compliance/release-checklist.md`); Console submission, target-market/legal review and independent pen test remain manual (#15/#21). |
+| Backend/iOS scope decisions | ✅ docs / not implemented | ADR-014 + `docs/architecture/backend-control-plane.md` (role-based ownership/runbooks, acceptance status); ADR-015 + `docs/architecture/ios-plan.md` (decision/owner table, App Store checklist, acceptance status); explicitly not implemented (#16/#20). |
 
 ## Testing and assurance
 
@@ -125,7 +125,7 @@ Legend:
 | Instrumentation tests | ✅ | Import, native lifecycle, Keystore, user/password profile tests. |
 | Controlled-server tunnel | ✅ | Emulator test against OpenVPN 2.7 (TLS 1.3/AES-256-GCM, TUN, ICMP). |
 | Leak/kill-switch matrix | 🟡 | Full matrix with method, expected results and adb/tcpdump commands added (`docs/security/leak-test-matrix.md`); device execution pending. |
-| MASVS/ASVS review and penetration test | 🟡 | MASVS v2 gap assessment + ASVS note for a future backend added (`docs/security/masvs-gap-assessment.md`); independent pen test not performed. |
+| MASVS/ASVS review and penetration test | 🟡 | MASVS v2 gap assessment + ASVS note for a future backend added (`docs/security/masvs-gap-assessment.md`); commissionable scope, rules of engagement and release gate added (`docs/security/pen-test-scope.md`); independent pen test not performed. |
 | Physical-device matrix | ❌ | Not executed for this branch. |
 
 ## Out of scope for this repository
@@ -145,11 +145,12 @@ Legend:
 1. Execute the device leak-test matrix (`docs/security/leak-test-matrix.md`) on
    physical devices with a controlled server: DNS fail-closed/fallback, split
    tunneling, captive portal, Always-on/lockdown, process death/reboot, 16 KB.
-2. Publish the privacy policy and submit the Play `VpnService`/
-   `QUERY_ALL_PACKAGES`/Data-safety declarations; complete target-market/legal
-   review (#15).
-3. Commission the independent penetration test and work through the MASVS gaps
-   (FLAG_SECURE/key-bound app lock, reproducibility/provenance).
+2. Publish the privacy policy (canonical URL and steps in `docs/legal/README.md`)
+   and submit the Play `VpnService`/`QUERY_ALL_PACKAGES`/Data-safety
+   declarations; complete target-market/legal review (#15).
+3. Commission the independent penetration test using
+   `docs/security/pen-test-scope.md`, then work through the MASVS gaps
+   (FLAG_SECURE/key-bound app lock, reproducibility/provenance) (#21).
 4. Keep the advisory SLA and core/mbedTLS review cadence (`SECURITY.md`); drill
    the emergency-release process.
 5. If the product proceeds with a backend (#16) or iOS (#20), start those in

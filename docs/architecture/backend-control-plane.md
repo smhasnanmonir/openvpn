@@ -184,24 +184,57 @@ encryption and the ADR-008/009 fail-closed behaviour.
 - Backups: encrypted, tested restores, protected from admin-plane compromise;
   no plaintext credential stores.
 
-## 7. Ownership and runbooks (placeholders)
+## 7. Ownership and runbooks (required before production)
 
-The following owners/runbooks are **required before production** and are not
-currently staffed by this repository:
+No backend team, infrastructure or production account is staffed by this
+repository. Every area below is therefore **unowned** until the backend is
+funded and split into its own repository (ADR-014). The table is the staffing
+gate, not a claim: the "owner role" column names the role that must be assigned
+before the corresponding phase starts.
 
-| Area | Owner (to be assigned) | Runbook status |
+| Area | Owner role (must be staffed) | Required runbook | Status |
+|---|---|---|---|
+| Account/auth/MFA API | Backend platform lead | Deploy/rollback, token/key rotation, account-takeover response, rate-limit changes | Not staffed, not written |
+| PKI root/intermediate ceremonies + rotation | Security/PKI lead (second custodian required) | Offline root ceremony, intermediate issuance, rotation, revocation, compromise | Not staffed, not written |
+| Gateway fleet + network/DDoS | Infrastructure/SRE lead | Fleet rollout, capacity, DDoS mitigation, host isolation, region failover | Not staffed, not written |
+| DNS resolvers | Infrastructure/SRE lead (with security review) | Resolver rollout, RRL/abuse tuning, upstream failover, cache-poisoning response | Not staffed, not written |
+| Monitoring/alerting/on-call | SRE lead | SLOs, alert routing, on-call rotation, dashboards, dependency health | Not staffed, not written |
+| Incident response / abuse handling | Security lead (incident commander rota) | Severity matrix, containment, comms, evidence handling, post-incident review | Not staffed, not written |
+| Privacy review / DPA with providers | Privacy/legal owner | Data inventory, retention, DPA review, subject-request handling, cross-border review | Not staffed, not written |
+
+### 7.1 Runbook minimum contents
+
+Every runbook must state, in this order:
+
+1. **Trigger and scope** — the alert/symptom, affected component, and severity.
+2. **First 15 minutes** — who is paged, what is checked, and the safe immediate
+   action (usually: revoke, block, or fail closed — never "wait and see").
+3. **Containment** — revoke tokens/devices/certificates, quarantine a gateway,
+   disable a feature flag, or fail the affected region over.
+4. **Communication** — internal escalation contacts, customer/status-page
+   wording, and who is authorised to publish it.
+5. **Recovery and verification** — how the fix is deployed, how restored
+   service is verified, and what must be re-tested.
+6. **Evidence and review** — logs retained, timeline, and a blameless
+   post-incident review with dated actions.
+7. **Drill cadence** — at least one tabletop per quarter and one restore/rotation
+   drill per year, with the date and findings recorded.
+
+### 7.2 Production-readiness gate (issue #16 acceptance)
+
+| Acceptance criterion | Evidence in this repository | Status |
 |---|---|---|
-| Account/auth/MFA API | TBD | not written |
-| PKI root/intermediate ceremonies + rotation | TBD | not written |
-| Gateway fleet + network/DDoS | TBD | not written |
-| DNS resolvers | TBD | not written |
-| Monitoring/alerting/on-call | TBD | not written |
-| Incident response / abuse handling | TBD | not written |
-| Privacy review / DPA with providers | TBD | not written |
+| Documented control-plane/data-plane separation | Sections 2–5 and ADR-014 | Done (design) |
+| Device credentials unique and revocable | Section 3.2/3.3 design only | Not implemented — Phase 2 |
+| Backend authorization is server-side and tested | Section 3.1/4 design only; no code, no ASVS test | Not implemented — Phase 1/3 |
+| PKI/CA and gateway hardening have an owner and runbooks | Section 7 role table + 7.1 runbook requirements | Roles defined; **not staffed, runbooks not written** |
 
 A backend ASVS (OWASP Application Security Verification Standard) review and an
 independent penetration test are required before launch; see
-`docs/security/masvs-gap-assessment.md`.
+`docs/security/masvs-gap-assessment.md` and
+`docs/security/pen-test-scope.md`. Issue #16 stays open until the external rows
+above are staffed and evidenced; this document is the planning deliverable, not
+an implementation.
 
 ## 8. Threat model summary (target)
 

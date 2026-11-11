@@ -200,18 +200,32 @@ jobs:
           done
 
           # Signature + certificate identity.
+          #
+          # apksigner formats the line differently across build-tools releases:
+          #   build-tools <= 36: "Signer #1 certificate SHA-256 digest: <hex>"
+          #   build-tools 37:    "V3.0 Signer: certificate SHA-256 digest: <hex>"
+          # Match the field itself instead of the signer prefix so both stay
+          # supported. If a signing-key rotation ever produces more than one
+          # distinct digest, fail instead of guessing which key signed the APK.
           SIGNER_OUTPUT="$("${BUILD_TOOLS}/apksigner" verify --verbose --print-certs "$APK")"
           printf '%s\n' "$SIGNER_OUTPUT"
-          ACTUAL_CERT_SHA256="$(
+          CERT_DIGESTS="$(
             printf '%s\n' "$SIGNER_OUTPUT" \
-              | sed -nE 's/^Signer #1 certificate SHA-256 digest: *([0-9a-fA-F]+).*/\1/p' \
-              | head -n 1
+              | sed -nE 's/.*certificate SHA-256 digest: *([0-9a-fA-F]{64}).*/\1/p' \
+              | tr 'A-F' 'a-f' \
+              | sort -u
           )"
-          ACTUAL_CERT_SHA256="$(printf '%s' "$ACTUAL_CERT_SHA256" | tr 'A-F' 'a-f')"
-          if [[ -z "$ACTUAL_CERT_SHA256" ]]; then
-            echo "::error::could not read the release certificate SHA-256 digest from apksigner output"
+          DIGEST_COUNT="$(printf '%s\n' "$CERT_DIGESTS" | grep -c . || true)"
+          if [[ "${DIGEST_COUNT}" -eq 0 ]]; then
+            echo "::error::could not read the release certificate SHA-256 digest from apksigner output (expected 'Signer #1 certificate SHA-256 digest:' or 'V3.0 Signer: certificate SHA-256 digest:')"
             exit 1
           fi
+          if [[ "${DIGEST_COUNT}" -gt 1 ]]; then
+            echo "::error::apksigner reported ${DIGEST_COUNT} distinct certificate SHA-256 digests; refusing to guess which key signed this APK:"
+            printf '%s\n' "$CERT_DIGESTS"
+            exit 1
+          fi
+          ACTUAL_CERT_SHA256="${CERT_DIGESTS}"
           if [[ "$ACTUAL_CERT_SHA256" != "$RELEASE_CERT_SHA256" ]]; then
             echo "::error::release APK certificate SHA-256 is $ACTUAL_CERT_SHA256, expected $RELEASE_CERT_SHA256 (v1.3.0 release key)"
             exit 1

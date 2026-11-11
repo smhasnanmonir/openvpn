@@ -155,7 +155,9 @@ Standard), not MASVS:
 ## 12. Independent penetration test
 
 An independent penetration test is **required before any commercial launch** and
-has **not** been performed for this repository. Minimum scope:
+has **not** been performed for this repository. The commissionable scope, rules
+of engagement, required cases and release gate are in
+[`pen-test-scope.md`](pen-test-scope.md). Minimum scope:
 
 1. Android app: local storage, Keystore usage, profile import paths, JNI/native
    surface, service/component exposure, intent handling, app-lock bypass,
@@ -188,6 +190,18 @@ bugs (SLA in `SECURITY.md`).
 5. **Backend ASVS/pen test** — future work if #16 proceeds.
 6. **Dependency patch cadence** — now has an SLA and owner (SECURITY.md), but
    core updates are still manual and need periodic drills.
+
+### Status of issue #21
+
+| Acceptance criterion | Repository deliverable | Status |
+|---|---|---|
+| Documented leak-test matrix passes on physical devices | [`leak-test-matrix.md`](leak-test-matrix.md) (rows, method, capture commands, pass criteria) | Matrix ready; **no physical-device run yet** |
+| MASVS/ASVS gap assessment complete | This document (MASVS v2 + ASVS note) | Done (desk assessment) |
+| Independent penetration-test findings triaged | [`pen-test-scope.md`](pen-test-scope.md) (scope, rules, gate, triage process) | Scope ready; **test not commissioned** |
+| CI covers the automated subset | `leak-test-matrix.md` §6: JVM policy tests, 16 KB alignment gate, SBOM/advisory scan, release APK gates | Done for the listed subset; instrumentation and packet capture are not in CI |
+
+Issue #21 stays open until the device rows are executed and a penetration-test
+report has been triaged; the repository deliverables are complete.
 
 ## 14. Statement of limitations
 

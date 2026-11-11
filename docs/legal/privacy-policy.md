@@ -5,8 +5,12 @@
 **Policy version:** 1.0
 **Last updated:** 2026-11-11
 **Source of truth:** this document (`docs/legal/privacy-policy.md`) in the
-project repository. Publish it at a stable public HTTPS URL and use that URL in
-Google Play Console and in the app's store listing before distribution.
+project repository.
+**Canonical public URL:**
+<https://github.com/smhasnanmonir/openvpn/blob/main/docs/legal/privacy-policy.md>
+— the app links here from Settings → About, and this is the URL to enter in
+Google Play Console and the store listing. Publication steps and the Console
+checklist are in [`README.md`](README.md).
 
 ## 1. Summary
 

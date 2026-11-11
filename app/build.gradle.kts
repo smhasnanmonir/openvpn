@@ -38,6 +38,13 @@ android {
 
         buildConfigField("String", "OPENVPN_CORE_REVISION", "\"10c6a56cb17fd015a2d24953c3c42145bbcdea58\"")
         buildConfigField("String", "OPENVPN_CORE_VERSION", "\"3.9\"")
+        // Public privacy policy (Settings -> About -> Privacy policy). Keep in
+        // sync with docs/legal/README.md and the Play Console entry.
+        buildConfigField(
+            "String",
+            "PRIVACY_POLICY_URL",
+            "\"https://github.com/smhasnanmonir/openvpn/blob/main/docs/legal/privacy-policy.md\"",
+        )
 
         val requestedAbis = (project.findProperty("abis") as String?)
             ?.split(",")

@@ -2,6 +2,31 @@
 
 All notable changes to this project are documented here.
 
+## [Unreleased]
+
+### CI
+
+- **Fixed the signed-release gate for build-tools 37.** `apksigner` changed its
+  output from `Signer #1 certificate SHA-256 digest:` to
+  `V3.0 Signer: certificate SHA-256 digest:`, so the v1.5.0 tag job failed with
+  "could not read the release certificate SHA-256 digest". The gate now matches
+  the digest field for both formats and fails explicitly if a key rotation
+  produces more than one distinct signer digest.
+
+### Documentation and compliance
+
+- Privacy policy publication/Play submission runbook (`docs/legal/README.md`)
+  and an in-app **Settings → About → Privacy policy** link
+  (`BuildConfig.PRIVACY_POLICY_URL`).
+- Backend and iOS plans now record role owners, runbook requirements, decision
+  owners and acceptance status (#16/#20) instead of unnamed placeholders.
+- Commissionable independent penetration-test scope and release gate
+  (`docs/security/pen-test-scope.md`), linked from the MASVS assessment and
+  leak-test matrix (#21).
+- Corrected stale split-tunneling/captive-portal rows in
+  `docs/security-readiness.md` (both shipped in v1.4.0; device verification
+  still pending).
+
 ## [1.5.0] - 2026-11-11
 
 ### Build and toolchain

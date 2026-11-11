@@ -163,9 +163,11 @@ More detail:
   tunneling (ADR-011), captive portal pause (ADR-012), desired-state lifecycle
   (ADR-013), backend scope (ADR-014), iOS scope (ADR-015)
 - [Leak-test matrix](docs/security/leak-test-matrix.md),
-  [MASVS/ASVS gap assessment](docs/security/masvs-gap-assessment.md)
+  [MASVS/ASVS gap assessment](docs/security/masvs-gap-assessment.md),
+  [penetration-test scope](docs/security/pen-test-scope.md)
 - [Privacy policy](docs/legal/privacy-policy.md),
   [Play VpnService disclosure](docs/legal/play-store-vpn-disclosure.md),
+  [publication and Play submission runbook](docs/legal/README.md),
   [release compliance checklist](docs/compliance/release-checklist.md)
 - [Backend control-plane plan](docs/architecture/backend-control-plane.md),
   [iOS plan](docs/architecture/ios-plan.md) (both explicitly not implemented)
