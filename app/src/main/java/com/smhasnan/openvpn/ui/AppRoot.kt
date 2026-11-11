@@ -8,6 +8,7 @@ import android.net.Uri
 import android.net.VpnService
 import android.provider.Settings
 import android.os.Build
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
@@ -18,6 +19,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -89,11 +91,22 @@ fun AppRoot(
     val importReport by viewModel.importReport.collectAsStateWithLifecycle()
     val importing by viewModel.importing.collectAsStateWithLifecycle()
     val selfTest by viewModel.selfTest.collectAsStateWithLifecycle()
+    val portalState by viewModel.portalState.collectAsStateWithLifecycle()
+    val alwaysOnState by viewModel.alwaysOnState.collectAsStateWithLifecycle()
+    val splitTunnelApps by viewModel.splitTunnelApps.collectAsStateWithLifecycle()
+    val splitTunnelAppsLoading by viewModel.splitTunnelAppsLoading.collectAsStateWithLifecycle()
 
     var tab by rememberSaveable { mutableStateOf(AppTab.HOME) }
+    // Small in-app navigation state: the split-tunnel editor replaces the tab
+    // content, so there is no navigation library dependency.
+    var splitTunnelOpen by rememberSaveable { mutableStateOf(false) }
     var pendingConsent by remember { mutableStateOf<ConnectRequest?>(null) }
     var challengeDialogVisible by remember { mutableStateOf(snapshot.state == VpnState.NEEDS_CHALLENGE) }
     val snackbarHostState = remember { SnackbarHostState() }
+
+    val splitTunnelWarning = remember(settings.splitTunnelMode, settings.splitTunnelPackages) {
+        splitTunnelLeakWarning(settings)
+    }
 
     val selectedProfile = remember(profiles, selectedId) {
         profiles.firstOrNull { it.id == selectedId } ?: profiles.firstOrNull()
@@ -160,80 +173,117 @@ fun AppRoot(
         }
     }
 
+    BackHandler(enabled = splitTunnelOpen) { splitTunnelOpen = false }
+
+    LaunchedEffect(splitTunnelOpen) {
+        if (splitTunnelOpen) viewModel.loadInstalledApps()
+    }
+
     Scaffold(
         modifier = modifier.fillMaxSize(),
         containerColor = MaterialTheme.colorScheme.background,
         snackbarHost = { SnackbarHost(snackbarHostState) },
         bottomBar = {
-            AppBottomBar(selected = tab, onSelect = { tab = it })
+            // The split-tunnel editor is a full-screen destination, so the tab
+            // bar is hidden while it is open (back returns to Settings).
+            if (!splitTunnelOpen) {
+                AppBottomBar(selected = tab, onSelect = { tab = it })
+            }
         },
     ) { innerPadding ->
-        when (tab) {
-            AppTab.HOME -> HomeScreen(
-                snapshot = snapshot,
-                profile = selectedProfile,
-                profiles = profiles,
-                ipState = ipState,
-                importing = importing,
-                onConnect = viewModel::requestConnect,
-                onDisconnect = viewModel::disconnect,
-                onReconnect = viewModel::reconnect,
-                onRefreshIp = viewModel::checkIp,
-                onSelectProfile = viewModel::selectProfile,
-                onImport = { importLauncher.launch(arrayOf("*/*")) },
-                onOpenProfiles = { tab = AppTab.PROFILES },
-                onOpenLogs = { tab = AppTab.LOGS },
-                onRespondChallenge = { challengeDialogVisible = true },
-                modifier = Modifier.padding(innerPadding),
-            )
-
-            AppTab.PROFILES -> ProfilesScreen(
-                profiles = profiles,
-                selectedId = selectedProfile?.id,
-                importing = importing,
-                onImport = { importLauncher.launch(arrayOf("*/*")) },
-                onSelect = viewModel::selectProfile,
-                onRename = viewModel::renameProfile,
-                onDelete = viewModel::deleteProfile,
-                onSetEmoji = viewModel::setEmoji,
-                modifier = Modifier.padding(innerPadding),
-            )
-
-            AppTab.LOGS -> LogsScreen(
-                logs = viewModel.logs,
-                onClear = viewModel::clearLogs,
-                onMessage = { viewModel.message(it) },
-                modifier = Modifier.padding(innerPadding),
-            )
-
-            AppTab.SETTINGS -> SettingsScreen(
+        if (splitTunnelOpen) {
+            SplitTunnelScreen(
                 settings = settings,
-                selfTest = selfTest,
-                engineInfo = remember { NativeEngine.engineInfo() },
-                onThemeChange = viewModel::updateTheme,
-                onBiometricToggle = onBiometricChangeRequest,
-                onBlockUnusedFamiliesToggle = viewModel::updateBlockUnusedFamilies,
-                onAutoCheckIpToggle = viewModel::updateAutoCheckIp,
-                onRunSelfTest = viewModel::runSelfTest,
-                notificationsGranted = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
-                    ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) ==
-                    PackageManager.PERMISSION_GRANTED,
-                onOpenNotificationSettings = {
-                    val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
-                        .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
-                    runCatching { context.startActivity(intent) }.onFailure {
-                        runCatching {
-                            context.startActivity(
-                                Intent(
-                                    Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                                    Uri.fromParts("package", context.packageName, null),
-                                ),
-                            )
-                        }
-                    }
-                },
+                apps = splitTunnelApps,
+                appsLoading = splitTunnelAppsLoading,
+                vpnState = snapshot.state,
+                onBack = { splitTunnelOpen = false },
+                onModeChange = viewModel::updateSplitTunnelMode,
+                onPackagesChange = viewModel::updateSplitTunnelPackages,
+                onReconnect = viewModel::reconnect,
                 modifier = Modifier.padding(innerPadding),
             )
+        } else {
+            when (tab) {
+                AppTab.HOME -> HomeScreen(
+                    snapshot = snapshot,
+                    profile = selectedProfile,
+                    profiles = profiles,
+                    ipState = ipState,
+                    importing = importing,
+                    portalState = portalState,
+                    splitTunnelWarning = splitTunnelWarning,
+                    onConnect = viewModel::requestConnect,
+                    onDisconnect = viewModel::disconnect,
+                    onReconnect = viewModel::reconnect,
+                    onRefreshIp = viewModel::checkIp,
+                    onSelectProfile = viewModel::selectProfile,
+                    onImport = { importLauncher.launch(arrayOf("*/*")) },
+                    onOpenProfiles = { tab = AppTab.PROFILES },
+                    onOpenLogs = { tab = AppTab.LOGS },
+                    onRespondChallenge = { challengeDialogVisible = true },
+                    onPauseForPortal = viewModel::pauseForPortal,
+                    onResumeAfterPortal = viewModel::resumeAfterPortal,
+                    onOpenPortalSignIn = viewModel::openPortalSignIn,
+                    modifier = Modifier.padding(innerPadding),
+                )
+
+                AppTab.PROFILES -> ProfilesScreen(
+                    profiles = profiles,
+                    selectedId = selectedProfile?.id,
+                    importing = importing,
+                    onImport = { importLauncher.launch(arrayOf("*/*")) },
+                    onSelect = viewModel::selectProfile,
+                    onRename = viewModel::renameProfile,
+                    onDelete = viewModel::deleteProfile,
+                    onSetEmoji = viewModel::setEmoji,
+                    modifier = Modifier.padding(innerPadding),
+                )
+
+                AppTab.LOGS -> LogsScreen(
+                    logs = viewModel.logs,
+                    onClear = viewModel::clearLogs,
+                    onMessage = { viewModel.message(it) },
+                    modifier = Modifier.padding(innerPadding),
+                )
+
+                AppTab.SETTINGS -> SettingsScreen(
+                    settings = settings,
+                    selfTest = selfTest,
+                    engineInfo = remember { NativeEngine.engineInfo() },
+                    alwaysOnState = alwaysOnState,
+                    onThemeChange = viewModel::updateTheme,
+                    onBiometricToggle = onBiometricChangeRequest,
+                    onBlockUnusedFamiliesToggle = viewModel::updateBlockUnusedFamilies,
+                    onAutoCheckIpToggle = viewModel::updateAutoCheckIp,
+                    onRequireTunnelDnsToggle = viewModel::updateRequireTunnelDns,
+                    onFallbackDnsChange = viewModel::updateFallbackDns,
+                    onMtuModeChange = viewModel::updateMtuMode,
+                    onCompressionPolicyChange = viewModel::updateCompressionPolicy,
+                    onCipherPolicyChange = viewModel::updateCipherPolicy,
+                    onOpenSplitTunnel = { splitTunnelOpen = true },
+                    onRefreshAlwaysOn = viewModel::refreshAlwaysOnStatus,
+                    onRunSelfTest = viewModel::runSelfTest,
+                    notificationsGranted = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+                        ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) ==
+                        PackageManager.PERMISSION_GRANTED,
+                    onOpenNotificationSettings = {
+                        val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                            .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                        runCatching { context.startActivity(intent) }.onFailure {
+                            runCatching {
+                                context.startActivity(
+                                    Intent(
+                                        Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                        Uri.fromParts("package", context.packageName, null),
+                                    ),
+                                )
+                            }
+                        }
+                    },
+                    modifier = Modifier.padding(innerPadding),
+                )
+            }
         }
     }
 
@@ -409,6 +459,29 @@ private fun ImportReportDialog(report: ImportReport, onDismiss: () -> Unit) {
                                     MaterialTheme.colorScheme.error
                                 },
                             )
+                            // Import-side policy findings (legacy cipher pins,
+                            // CA changes) are advisory: the profile still
+                            // imported, but the user must see the warning.
+                            val warning = (result as? ImportOutcome.Success)?.warning
+                            if (!warning.isNullOrBlank()) {
+                                Spacer(Modifier.height(4.dp))
+                                Row(verticalAlignment = Alignment.Top) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Warning,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.error,
+                                        modifier = Modifier
+                                            .padding(top = 1.dp)
+                                            .size(14.dp),
+                                    )
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(
+                                        text = warning,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.error,
+                                    )
+                                }
+                            }
                         }
                     }
                 }

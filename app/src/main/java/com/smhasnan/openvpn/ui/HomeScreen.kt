@@ -76,6 +76,7 @@ import com.smhasnan.openvpn.ui.theme.StatusAmberLight
 import com.smhasnan.openvpn.ui.theme.StatusBlueLight
 import com.smhasnan.openvpn.util.ByteFormat
 import com.smhasnan.openvpn.util.DurationFormat
+import com.smhasnan.openvpn.vpn.PortalState
 import com.smhasnan.openvpn.vpn.PublicIpState
 import com.smhasnan.openvpn.vpn.VpnSnapshot
 import com.smhasnan.openvpn.vpn.VpnState
@@ -89,6 +90,8 @@ fun HomeScreen(
     profiles: List<ProfileSummary>,
     ipState: PublicIpState,
     importing: Boolean,
+    portalState: PortalState,
+    splitTunnelWarning: String?,
     onConnect: () -> Unit,
     onDisconnect: () -> Unit,
     onReconnect: () -> Unit,
@@ -98,6 +101,9 @@ fun HomeScreen(
     onOpenProfiles: () -> Unit,
     onOpenLogs: () -> Unit,
     onRespondChallenge: () -> Unit,
+    onPauseForPortal: () -> Unit,
+    onResumeAfterPortal: () -> Unit,
+    onOpenPortalSignIn: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var elapsedMillis by remember(snapshot.connectedAtMillis, snapshot.state) {
@@ -167,7 +173,39 @@ fun HomeScreen(
                     onConnect = onConnect,
                     onDisconnect = onDisconnect,
                     onRespondChallenge = onRespondChallenge,
+                    onResumeAfterPortal = onResumeAfterPortal,
                 )
+            }
+        }
+
+        // Honest protection state: a portal pause leaves the device unprotected,
+        // so it is always stated first and in the strongest terms.
+        if (snapshot.pausedForPortal) {
+            item {
+                PausedForPortalBanner(
+                    onSignIn = onOpenPortalSignIn,
+                    onResume = onResumeAfterPortal,
+                )
+            }
+        }
+
+        if (!snapshot.pausedForPortal && portalState == PortalState.SIGN_IN_REQUIRED &&
+            snapshot.state.isActive
+        ) {
+            item {
+                MessageBanner(
+                    message = "This network needs sign-in. While the VPN is connected the " +
+                        "sign-in page may be blocked by the tunnel.",
+                    isError = false,
+                    actionLabel = "Pause VPN",
+                    onAction = onPauseForPortal,
+                )
+            }
+        }
+
+        if (splitTunnelWarning != null) {
+            item {
+                MessageBanner(message = splitTunnelWarning, isError = true)
             }
         }
 
@@ -255,8 +293,10 @@ private fun ConnectionHero(
     onConnect: () -> Unit,
     onDisconnect: () -> Unit,
     onRespondChallenge: () -> Unit,
+    onResumeAfterPortal: () -> Unit,
 ) {
-    val connected = snapshot.state == VpnState.CONNECTED
+    val paused = snapshot.pausedForPortal
+    val connected = snapshot.state == VpnState.CONNECTED && !paused
     val busy = snapshot.state == VpnState.PREPARING ||
         snapshot.state == VpnState.CONNECTING ||
         snapshot.state == VpnState.RECONNECTING ||
@@ -337,7 +377,7 @@ private fun ConnectionHero(
                     }
                 }
                 Spacer(Modifier.width(8.dp))
-                HeroStatusPill(state = snapshot.state)
+                HeroStatusPill(state = snapshot.state, paused = paused)
             }
 
             Column(
@@ -360,14 +400,14 @@ private fun ConnectionHero(
                     )
                 } else {
                     Text(
-                        text = heroHeadline(snapshot.state),
+                        text = heroHeadline(snapshot.state, paused),
                         style = MaterialTheme.typography.headlineSmall,
                         color = if (failed) HeroDanger else HeroText,
                         textAlign = TextAlign.Center,
                     )
                     Spacer(Modifier.height(6.dp))
                     Text(
-                        text = heroSupporting(snapshot.state, profile),
+                        text = heroSupporting(snapshot.state, paused, profile),
                         style = MaterialTheme.typography.bodySmall,
                         color = HeroMuted,
                         textAlign = TextAlign.Center,
@@ -378,6 +418,10 @@ private fun ConnectionHero(
 
                 Button(
                     onClick = {
+                        if (paused) {
+                            onResumeAfterPortal()
+                            return@Button
+                        }
                         when (snapshot.state) {
                             VpnState.CONNECTED, VpnState.RECONNECTING,
                             VpnState.PREPARING, VpnState.CONNECTING -> onDisconnect()
@@ -421,7 +465,7 @@ private fun ConnectionHero(
                         Spacer(Modifier.width(10.dp))
                     }
                     Text(
-                        text = heroActionLabel(snapshot.state),
+                        text = heroActionLabel(snapshot.state, paused),
                         style = MaterialTheme.typography.labelLarge,
                     )
                 }
@@ -450,13 +494,15 @@ private fun ConnectionHero(
 }
 
 @Composable
-private fun HeroStatusPill(state: VpnState) {
-    val dotColor = when (state) {
-        VpnState.CONNECTED -> HeroAccent
-        VpnState.CONNECTING, VpnState.PREPARING, VpnState.RECONNECTING, VpnState.DISCONNECTING -> StatusAmberLight
-        VpnState.AUTH_FAILED, VpnState.ERROR -> HeroDanger
-        VpnState.NEEDS_CHALLENGE -> StatusBlueLight
-        VpnState.DISCONNECTED -> HeroMuted
+private fun HeroStatusPill(state: VpnState, paused: Boolean) {
+    val dotColor = when {
+        paused -> StatusAmberLight
+        state == VpnState.CONNECTED -> HeroAccent
+        state == VpnState.CONNECTING || state == VpnState.PREPARING ||
+            state == VpnState.RECONNECTING || state == VpnState.DISCONNECTING -> StatusAmberLight
+        state == VpnState.AUTH_FAILED || state == VpnState.ERROR -> HeroDanger
+        state == VpnState.NEEDS_CHALLENGE -> StatusBlueLight
+        else -> HeroMuted
     }
     Surface(
         shape = RoundedCornerShape(50),
@@ -473,7 +519,7 @@ private fun HeroStatusPill(state: VpnState) {
                     .background(dotColor, CircleShape),
             )
             Text(
-                text = heroStatusLabel(state).uppercase(),
+                text = heroStatusLabel(state, paused).uppercase(),
                 style = MaterialTheme.typography.labelSmall,
                 color = HeroText,
             )
@@ -506,50 +552,120 @@ private fun HeroStat(label: String, value: String, modifier: Modifier = Modifier
     }
 }
 
-private fun heroStatusLabel(state: VpnState): String = when (state) {
-    VpnState.DISCONNECTED -> "Inactive"
-    VpnState.PREPARING -> "Preparing"
-    VpnState.CONNECTING -> "Connecting"
-    VpnState.CONNECTED -> "Protected"
-    VpnState.RECONNECTING -> "Reconnecting"
-    VpnState.DISCONNECTING -> "Closing"
-    VpnState.NEEDS_CHALLENGE -> "Action needed"
-    VpnState.AUTH_FAILED -> "Sign-in failed"
-    VpnState.ERROR -> "Error"
+private fun heroStatusLabel(state: VpnState, paused: Boolean): String = when {
+    paused -> "Paused"
+    state == VpnState.DISCONNECTED -> "Inactive"
+    state == VpnState.PREPARING -> "Preparing"
+    state == VpnState.CONNECTING -> "Connecting"
+    state == VpnState.CONNECTED -> "Protected"
+    state == VpnState.RECONNECTING -> "Reconnecting"
+    state == VpnState.DISCONNECTING -> "Closing"
+    state == VpnState.NEEDS_CHALLENGE -> "Action needed"
+    state == VpnState.AUTH_FAILED -> "Sign-in failed"
+    else -> "Error"
 }
 
-private fun heroHeadline(state: VpnState): String = when (state) {
-    VpnState.PREPARING -> "Preparing the tunnel"
-    VpnState.CONNECTING -> "Establishing a session"
-    VpnState.RECONNECTING -> "Restoring the session"
-    VpnState.DISCONNECTING -> "Closing the tunnel"
-    VpnState.NEEDS_CHALLENGE -> "Verification required"
-    VpnState.AUTH_FAILED -> "Sign-in was rejected"
-    VpnState.ERROR -> "Connection stopped"
-    VpnState.DISCONNECTED -> "You are not protected"
-    VpnState.CONNECTED -> "Connected"
+private fun heroHeadline(state: VpnState, paused: Boolean): String = when {
+    paused -> "VPN paused for sign-in"
+    state == VpnState.PREPARING -> "Preparing the tunnel"
+    state == VpnState.CONNECTING -> "Establishing a session"
+    state == VpnState.RECONNECTING -> "Restoring the session"
+    state == VpnState.DISCONNECTING -> "Closing the tunnel"
+    state == VpnState.NEEDS_CHALLENGE -> "Verification required"
+    state == VpnState.AUTH_FAILED -> "Sign-in was rejected"
+    state == VpnState.ERROR -> "Connection stopped"
+    state == VpnState.DISCONNECTED -> "You are not protected"
+    else -> "Connected"
 }
 
-private fun heroSupporting(state: VpnState, profile: ProfileSummary): String = when (state) {
-    VpnState.DISCONNECTED ->
+private fun heroSupporting(
+    state: VpnState,
+    paused: Boolean,
+    profile: ProfileSummary,
+): String = when {
+    // A paused snapshot is never CONNECTED, so it can never render "Protected".
+    paused -> "Your traffic is NOT protected until you finish signing in and resume the VPN."
+    state == VpnState.DISCONNECTED ->
         "Connect to route this device through ${profile.metadata.displayServer ?: "your server"}."
-    VpnState.PREPARING -> "Preparing the device tunnel…"
-    VpnState.CONNECTING -> "Negotiating encryption with the server…"
-    VpnState.RECONNECTING -> "Re-establishing the secure session…"
-    VpnState.DISCONNECTING -> "Closing the tunnel…"
-    VpnState.ERROR, VpnState.AUTH_FAILED ->
+    state == VpnState.PREPARING -> "Preparing the device tunnel…"
+    state == VpnState.CONNECTING -> "Negotiating encryption with the server…"
+    state == VpnState.RECONNECTING -> "Re-establishing the secure session…"
+    state == VpnState.DISCONNECTING -> "Closing the tunnel…"
+    state == VpnState.ERROR || state == VpnState.AUTH_FAILED ->
         "Check diagnostics for the engine reason, then try again."
-    VpnState.NEEDS_CHALLENGE -> "The server is asking for an extra response."
-    VpnState.CONNECTED -> "Your traffic is routed through the tunnel."
+    state == VpnState.NEEDS_CHALLENGE -> "The server is asking for an extra response."
+    else -> "Your traffic is routed through the tunnel."
 }
 
-private fun heroActionLabel(state: VpnState): String = when (state) {
-    VpnState.CONNECTED, VpnState.RECONNECTING -> "Disconnect"
-    VpnState.PREPARING, VpnState.CONNECTING -> "Cancel"
-    VpnState.DISCONNECTING -> "Disconnecting…"
-    VpnState.NEEDS_CHALLENGE -> "Respond to server"
-    VpnState.ERROR, VpnState.AUTH_FAILED -> "Try again"
-    VpnState.DISCONNECTED -> "Connect"
+private fun heroActionLabel(state: VpnState, paused: Boolean): String = when {
+    paused -> "Resume VPN"
+    state == VpnState.CONNECTED || state == VpnState.RECONNECTING -> "Disconnect"
+    state == VpnState.PREPARING || state == VpnState.CONNECTING -> "Cancel"
+    state == VpnState.DISCONNECTING -> "Disconnecting…"
+    state == VpnState.NEEDS_CHALLENGE -> "Respond to server"
+    state == VpnState.ERROR || state == VpnState.AUTH_FAILED -> "Try again"
+    else -> "Connect"
+}
+
+/**
+ * Unambiguous portal-pause banner. The tunnel is down and Android restored the
+ * underlying network, so the device is exposed until the user signs in and
+ * resumes; this banner must never soften that language.
+ */
+@Composable
+private fun PausedForPortalBanner(
+    onSignIn: () -> Unit,
+    onResume: () -> Unit,
+) {
+    val scheme = MaterialTheme.colorScheme
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(14.dp),
+        color = scheme.errorContainer,
+    ) {
+        Column(modifier = Modifier.padding(start = 14.dp, top = 12.dp, end = 14.dp, bottom = 6.dp)) {
+            Row(verticalAlignment = Alignment.Top) {
+                Icon(
+                    imageVector = Icons.Filled.Warning,
+                    contentDescription = null,
+                    tint = scheme.onErrorContainer,
+                    modifier = Modifier
+                        .padding(top = 1.dp)
+                        .size(18.dp),
+                )
+                Spacer(Modifier.width(10.dp))
+                Column {
+                    Text(
+                        text = "VPN paused for network sign-in",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = scheme.onErrorContainer,
+                    )
+                    Spacer(Modifier.height(3.dp))
+                    Text(
+                        text = "Your traffic is NOT protected. Sign in to this network, then " +
+                            "resume the VPN.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = scheme.onErrorContainer,
+                    )
+                }
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TextButton(
+                    onClick = onSignIn,
+                    colors = ButtonDefaults.textButtonColors(contentColor = scheme.onErrorContainer),
+                ) { Text("Sign in") }
+                Spacer(Modifier.width(4.dp))
+                Button(
+                    onClick = onResume,
+                    shape = RoundedCornerShape(12.dp),
+                ) { Text("Resume VPN") }
+            }
+        }
+    }
 }
 
 @Composable

@@ -2,22 +2,36 @@ package com.smhasnan.openvpn.ui
 
 import android.app.Application
 import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.ConnectivityManager
+import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.Uri
+import android.os.Build
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.smhasnan.openvpn.appContainer
+import com.smhasnan.openvpn.config.AlwaysOnVpnPolicy
 import com.smhasnan.openvpn.config.EmojiCatalog
 import com.smhasnan.openvpn.config.ImportOutcome
 import com.smhasnan.openvpn.config.ProfileCredentials
 import com.smhasnan.openvpn.config.ProfileNameValidator
 import com.smhasnan.openvpn.config.ProfileSummary
+import com.smhasnan.openvpn.config.SystemVpnState
 import com.smhasnan.openvpn.nativevpn.NativeEngine
+import com.smhasnan.openvpn.settings.AlwaysOnVpnStatus
+import com.smhasnan.openvpn.settings.CipherPolicy
+import com.smhasnan.openvpn.settings.CompressionPolicy
+import com.smhasnan.openvpn.settings.MtuMode
+import com.smhasnan.openvpn.settings.SplitTunnelMode
 import com.smhasnan.openvpn.ui.components.CredentialPrompt
 import com.smhasnan.openvpn.ui.components.CredentialsInput
+import com.smhasnan.openvpn.vpn.CaptivePortalPolicy
 import com.smhasnan.openvpn.vpn.LogLevel
 import com.smhasnan.openvpn.vpn.MyVpnService
+import com.smhasnan.openvpn.vpn.NetworkState
+import com.smhasnan.openvpn.vpn.PortalState
 import com.smhasnan.openvpn.vpn.PublicIpState
 import com.smhasnan.openvpn.vpn.VpnController
 import com.smhasnan.openvpn.vpn.VpnState
@@ -28,6 +42,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -40,6 +55,9 @@ data class UiMessage(val text: String, val isError: Boolean = false)
 data class ImportReport(val fileName: String, val results: List<ImportOutcome>)
 
 data class ConnectRequest(val profileId: String, val credentials: ProfileCredentials)
+
+/** One launchable installed app offered by the per-app routing picker. */
+data class InstalledApp(val packageName: String, val label: String)
 
 sealed interface SelfTestState {
     data object Idle : SelfTestState
@@ -56,6 +74,20 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val settings = container.settings.settings
     val vpn = VpnController.snapshot
     val logs = VpnController.logs
+
+    /** Captive-portal classification of the active network; never claims protection. */
+    private val _portalState = MutableStateFlow(PortalState.UNKNOWN)
+    val portalState: StateFlow<PortalState> = _portalState.asStateFlow()
+
+    /** Best-effort Android Always-on/lockdown readiness, refreshed on demand. */
+    private val _alwaysOnState = MutableStateFlow(SystemVpnState.UNKNOWN)
+    val alwaysOnState: StateFlow<SystemVpnState> = _alwaysOnState.asStateFlow()
+
+    private val _splitTunnelApps = MutableStateFlow<List<InstalledApp>>(emptyList())
+    val splitTunnelApps: StateFlow<List<InstalledApp>> = _splitTunnelApps.asStateFlow()
+
+    private val _splitTunnelAppsLoading = MutableStateFlow(false)
+    val splitTunnelAppsLoading: StateFlow<Boolean> = _splitTunnelAppsLoading.asStateFlow()
 
     private val _messages = MutableSharedFlow<UiMessage>(extraBufferCapacity = 8)
     val messages: SharedFlow<UiMessage> = _messages.asSharedFlow()
@@ -81,8 +113,40 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private var promptBase = ProfileCredentials()
     private var lastVpnState = VpnState.DISCONNECTED
     private var ipCheckGeneration = 0L
+    private var splitTunnelAppsLoaded = false
+
+    /** True once the user paused the tunnel through the captive-portal flow. */
+    private var portalPauseRequested = false
+
+    /** Prevents more than one automatic reconnect per portal pause. */
+    private var autoResumeConsumed = false
+    private var lastPortalState = PortalState.UNKNOWN
+
     private val connectivityManager =
         application.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+
+    /**
+     * Portal classification callback. Registered for the default network so a
+     * sign-in page appearing/clearing updates the banner without polling. The
+     * callback body only writes an immutable StateFlow value, which is safe from
+     * the binder thread it is delivered on.
+     */
+    private val portalNetworkCallback = object : ConnectivityManager.NetworkCallback() {
+        override fun onCapabilitiesChanged(
+            network: Network,
+            networkCapabilities: NetworkCapabilities,
+        ) {
+            _portalState.value = classifyNetwork(networkCapabilities)
+        }
+
+        override fun onAvailable(network: Network) {
+            refreshPortalState()
+        }
+
+        override fun onLost(network: Network) {
+            refreshPortalState()
+        }
+    }
 
     init {
         // AppContainer already refreshes profiles once per process; refreshing
@@ -105,6 +169,37 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 lastVpnState = state
             }
         }
+        registerPortalCallback()
+        refreshAlwaysOnStatus()
+        viewModelScope.launch {
+            combine(
+                VpnController.snapshot.map { it.pausedForPortal },
+                _portalState,
+            ) { pausedForPortal, portal -> pausedForPortal to portal }
+                .distinctUntilChanged()
+                .collect { (pausedForPortal, portal) ->
+                    val previousPortal = lastPortalState
+                    lastPortalState = portal
+                    // Auto-resume exactly once per pause, and only after the
+                    // network leaves the portal state (a portal that was never
+                    // sign-in-required cannot be "completed" by waiting).
+                    if (pausedForPortal &&
+                        portalPauseRequested &&
+                        !autoResumeConsumed &&
+                        portal == PortalState.NOT_REQUIRED &&
+                        previousPortal != PortalState.NOT_REQUIRED
+                    ) {
+                        autoResumeConsumed = true
+                        message("Network sign-in detected. Reconnecting the VPN…")
+                        resumeAfterPortal()
+                    }
+                }
+        }
+    }
+
+    override fun onCleared() {
+        runCatching { connectivityManager.unregisterNetworkCallback(portalNetworkCallback) }
+        super.onCleared()
     }
 
     fun message(text: String, isError: Boolean = false) {
@@ -213,11 +308,191 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun disconnect() {
+        // An explicit disconnect must never be undone by portal auto-resume.
+        portalPauseRequested = false
+        autoResumeConsumed = true
         MyVpnService.disconnect(getApplication())
     }
 
     fun reconnect() {
         MyVpnService.reconnect(getApplication())
+    }
+
+    // ------------------------------------------------------------------
+    // Captive portal (#18)
+    // ------------------------------------------------------------------
+
+    /**
+     * Pauses the tunnel so the user can reach the network's sign-in page. The
+     * snapshot immediately stops claiming protection; the service closes the
+     * native session and keeps the desired profile for [resumeAfterPortal].
+     */
+    fun pauseForPortal() {
+        val snapshot = VpnController.snapshot.value
+        if (snapshot.state == VpnState.DISCONNECTED) {
+            message("The VPN is already disconnected.", isError = true)
+            refreshPortalState()
+            return
+        }
+        portalPauseRequested = true
+        autoResumeConsumed = false
+        VpnController.pausedForPortal()
+        runCatching { MyVpnService.pauseForPortal(getApplication()) }
+            .onFailure { message("Could not pause the VPN for network sign-in.", isError = true) }
+    }
+
+    /**
+     * Reconnects the tunnel the user paused for portal sign-in, or falls back to
+     * the selected profile when the paused profile is gone.
+     */
+    fun resumeAfterPortal() {
+        autoResumeConsumed = true
+        portalPauseRequested = false
+        val snapshot = VpnController.snapshot.value
+        if (!snapshot.pausedForPortal && snapshot.state.isActive) {
+            // Already connecting/connected: nothing to resume.
+            return
+        }
+        val pausedId = snapshot.profileId
+        val pausedProfile = pausedId?.let { container.profiles.summary(it) }
+        if (pausedProfile == null) {
+            requestConnect()
+            return
+        }
+        if (container.profiles.selectedId.value == pausedProfile.id) {
+            requestConnect()
+        } else {
+            viewModelScope.launch {
+                container.profiles.select(pausedProfile.id)
+                requestConnect()
+            }
+        }
+    }
+
+    /** Opens the platform's connectivity check in a browser. */
+    fun openPortalSignIn() {
+        runCatching {
+            val intent = Intent(
+                Intent.ACTION_VIEW,
+                Uri.parse("http://connectivitycheck.gstatic.com/generate_204"),
+            ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            getApplication<Application>().startActivity(intent)
+        }.onFailure {
+            message("No browser is available to open the sign-in page.", isError = true)
+        }
+    }
+
+    private fun registerPortalCallback() {
+        runCatching { connectivityManager.registerDefaultNetworkCallback(portalNetworkCallback) }
+            .onFailure {
+                // Some OEM builds reject the default callback. Fall back to a
+                // one-shot classification of the active network; connect and
+                // disconnect paths refresh it again.
+                refreshPortalState()
+            }
+    }
+
+    private fun refreshPortalState() {
+        val capabilities = connectivityManager.activeNetwork?.let { network ->
+            runCatching { connectivityManager.getNetworkCapabilities(network) }.getOrNull()
+        }
+        _portalState.value = classifyNetwork(capabilities)
+    }
+
+    private fun classifyNetwork(capabilities: NetworkCapabilities?): PortalState =
+        CaptivePortalPolicy.classify(
+            NetworkState(
+                hasInternet = capabilities
+                    ?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true,
+                validated = capabilities
+                    ?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true,
+                captivePortal = capabilities
+                    ?.hasCapability(NetworkCapabilities.NET_CAPABILITY_CAPTIVE_PORTAL) == true,
+            ),
+        )
+
+    // ------------------------------------------------------------------
+    // Always-on / lockdown readiness (#9)
+    // ------------------------------------------------------------------
+
+    /**
+     * Re-reads the (hidden) system Always-on VPN settings. Detection is
+     * best-effort; [SystemVpnState.UNKNOWN] is shown as "could not detect" and
+     * never as protection.
+     */
+    fun refreshAlwaysOnStatus() {
+        val application = getApplication<Application>()
+        val reading = runCatching { AlwaysOnVpnStatus.read(application) }.getOrNull()
+        _alwaysOnState.value = AlwaysOnVpnPolicy.classify(
+            appPackage = application.packageName,
+            alwaysOnPackage = reading?.alwaysOnPackage,
+            lockdownEnabled = reading?.lockdownEnabled,
+        )
+    }
+
+    // ------------------------------------------------------------------
+    // Per-app split tunneling (#17)
+    // ------------------------------------------------------------------
+
+    /**
+     * Loads launchable apps for the picker on IO and caches the list. Repeated
+     * opens reuse the cache; pass `force = true` to re-query after an install.
+     */
+    fun loadInstalledApps(force: Boolean = false) {
+        if (_splitTunnelAppsLoading.value) return
+        if (splitTunnelAppsLoaded && !force) return
+        _splitTunnelAppsLoading.value = true
+        viewModelScope.launch {
+            val apps = withContext(Dispatchers.IO) {
+                runCatching { queryInstalledApps() }.getOrDefault(emptyList())
+            }
+            _splitTunnelApps.value = apps
+            splitTunnelAppsLoaded = true
+            _splitTunnelAppsLoading.value = false
+        }
+    }
+
+    /**
+     * Only launcher apps are listed: they are the apps a user recognises, and
+     * service/system packages cannot be meaningfully routed or audited.
+     *
+     * This app's own package is deliberately excluded. Its only network use is
+     * the optional public-IP check, which is not user traffic, so offering it as
+     * a routable app would be meaningless; in an allow-list it would also look
+     * like a leak when omitted. Excluding it keeps the summary honest.
+     */
+    @Suppress("DEPRECATION")
+    private fun queryInstalledApps(): List<InstalledApp> {
+        val application = getApplication<Application>()
+        val packageManager = application.packageManager
+        val ownPackage = application.packageName
+        val launcherIntent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+        val resolved = runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                packageManager.queryIntentActivities(
+                    launcherIntent,
+                    PackageManager.ResolveInfoFlags.of(0L),
+                )
+            } else {
+                packageManager.queryIntentActivities(launcherIntent, 0)
+            }
+        }.getOrDefault(emptyList())
+
+        val byPackage = LinkedHashMap<String, InstalledApp>()
+        for (info in resolved) {
+            val appInfo = info.activityInfo?.applicationInfo ?: continue
+            val packageName = appInfo.packageName
+            if (packageName == ownPackage || byPackage.containsKey(packageName)) continue
+            val label = runCatching { packageManager.getApplicationLabel(appInfo).toString() }
+                .getOrNull()
+                ?.takeIf { it.isNotBlank() }
+                ?: packageName
+            byPackage[packageName] = InstalledApp(packageName = packageName, label = label)
+        }
+        return byPackage.values.sortedWith(
+            compareBy<InstalledApp, String>(String.CASE_INSENSITIVE_ORDER) { it.label }
+                .thenBy { it.packageName },
+        )
     }
 
     fun checkIp() {
@@ -361,6 +636,42 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun updateAutoCheckIp(enabled: Boolean) {
         container.settings.update { it.copy(autoCheckIp = enabled) }
+    }
+
+    // ------------------------------------------------------------------
+    // New security / reliability settings (#8, #10, #17, #19)
+    // ------------------------------------------------------------------
+
+    fun updateRequireTunnelDns(enabled: Boolean) {
+        container.settings.update { it.copy(requireTunnelDns = enabled) }
+    }
+
+    /**
+     * Stores the fallback DNS text verbatim. Parsing/validation happens in the
+     * DNS leak policy at connect time, so partially typed input is always safe.
+     */
+    fun updateFallbackDns(raw: String) {
+        container.settings.update { it.copy(fallbackDnsServers = raw) }
+    }
+
+    fun updateMtuMode(mode: MtuMode) {
+        container.settings.update { it.copy(mtuMode = mode) }
+    }
+
+    fun updateSplitTunnelMode(mode: SplitTunnelMode) {
+        container.settings.update { it.copy(splitTunnelMode = mode) }
+    }
+
+    fun updateSplitTunnelPackages(packages: Set<String>) {
+        container.settings.update { it.copy(splitTunnelPackages = packages) }
+    }
+
+    fun updateCompressionPolicy(policy: CompressionPolicy) {
+        container.settings.update { it.copy(compressionPolicy = policy) }
+    }
+
+    fun updateCipherPolicy(policy: CipherPolicy) {
+        container.settings.update { it.copy(cipherPolicy = policy) }
     }
 
     fun selectedProfile(): ProfileSummary? = container.profiles.selectedProfile()
