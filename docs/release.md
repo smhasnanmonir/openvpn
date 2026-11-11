@@ -51,7 +51,7 @@ keytool -genkeypair -v \
 Verify:
 
 ```bash
-"$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose \
+"$ANDROID_HOME/build-tools/37.0.0/apksigner" verify --verbose \
   app/build/outputs/apk/release/app-release.apk
 ```
 
@@ -60,7 +60,7 @@ digest is pinned in `android.yml` (`RELEASE_CERT_SHA256`) and the tag build
 fails if a different key signed the APK:
 
 ```bash
-"$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs \
+"$ANDROID_HOME/build-tools/37.0.0/apksigner" verify --print-certs \
   app/build/outputs/apk/release/app-release.apk | grep 'certificate SHA-256'
 # expected: 834d2a58261a6c4113a3170953c1eea4a30d65ebc5ba4386408f09039dd00c9c
 ```
@@ -76,7 +76,9 @@ digest only when the release key itself is rotated.
 `.github/workflows/android.yml` runs on every push/PR:
 
 1. checkout with the pinned OpenVPN Core submodule;
-2. install JDK 17, Android SDK 35, NDK 27.2.12479018, CMake 3.22.1;
+2. install JDK 17, Android SDK platform 37 (`platforms;android-37.0`, Build
+   Tools 36.0.0 for AGP and 37.0.0 for the `apksigner`/`aapt2` gates), NDK
+   27.2.12479018, CMake 3.22.1;
 3. restore/build checksum-verified native dependencies;
 4. run unit tests, lint, debug APK build, instrumentation-test APK build through
    the **project Gradle wrapper** (`./gradlew`); CI fails if the wrapper
@@ -99,7 +101,8 @@ On a `v*` tag it additionally:
 
 1. decodes the release keystore from secrets;
 2. builds a minified signed release APK (`:app:assembleRelease`,
-   `:app:testReleaseUnitTest`, `:app:lintRelease`);
+   `:app:lintRelease`) under AGP 9, where only the debug unit-test
+   component is enabled by default;
 3. runs the same 16 KB alignment gate and default-ABI assertion on the
    **release** APK (`app/build/outputs/apk/release/app-release.apk`) — the
    released artifact is not allowed to rely on debug-only checks;
@@ -169,7 +172,7 @@ Pinned inputs:
 - OpenVPN Core submodule commit `10c6a56cb17fd015a2d24953c3c42145bbcdea58`;
 - native dependencies by archive SHA-256 in `scripts/fetch-native-deps.sh`;
 - asio OpenVPN patches from the core submodule;
-- Gradle wrapper 8.11.1, AGP 8.7.3, Kotlin 2.0.21;
+- Gradle wrapper 9.6.0, AGP 9.4.1, Kotlin 2.4.21;
 - `minSdk/targetSdk/compileSdk`, NDK, and CMake versions documented in
   `README.md`.
 
@@ -203,7 +206,7 @@ build-specific minimum is:
 - [ ] `bash scripts/generate-sbom.sh` produces valid CycloneDX JSON and fails if
       the `third_party/openvpn3` submodule is missing or not at the pinned
       commit.
-- [ ] `./gradlew :app:assembleRelease :app:testReleaseUnitTest :app:lintRelease` passes.
+- [ ] `./gradlew :app:assembleRelease :app:lintRelease` passes.
 - [ ] Release APK gates pass: `bash scripts/check-16kb-alignment.sh
       app/build/outputs/apk/release/app-release.apk`; both default ABIs packaged
       (`unzip -l`); `apksigner verify --print-certs` reports certificate SHA-256

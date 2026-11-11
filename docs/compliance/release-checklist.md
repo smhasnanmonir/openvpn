@@ -21,7 +21,9 @@ Items that cannot be verified on the build host are marked as manual.
       `zipalign -c -P 16 4` succeeds), and the default build packaged both
       `lib/arm64-v8a/libnativevpn.so` and `lib/x86_64/libnativevpn.so`. CI runs
       this on every build **and again on the signed release APK** for a tag.
-- [ ] Release unit tests, lint (0 errors), R8 build, and both ABIs pass.
+- [ ] Debug unit tests (AGP 9 enables the unit-test component only for the
+      tested build type by default), lint (0 errors), R8 build, and both ABIs
+      pass.
 - [ ] Signed release APK verified with
       `apksigner verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk`.
 - [ ] The **release APK** passes the same 16 KB alignment gate and both default
@@ -30,7 +32,7 @@ Items that cannot be verified on the build host are marked as manual.
       publishing; re-run it on the downloaded artifact if the build was manual.
 - [ ] JNI callback names survive R8 (`-keep` rules) — checked with `dexdump` or
       an emulator smoke test (native session creation + crypto self-test).
-- [ ] `gradlew :app:testReleaseUnitTest` passes.
+- [ ] `gradlew :app:testDebugUnitTest` passes.
 
 ## 2. Signing and secrets
 
@@ -146,8 +148,8 @@ Items that cannot be verified on the build host are marked as manual.
       gh release download v1.3.0 --pattern app-release.apk
       bash scripts/check-16kb-alignment.sh app-release.apk
       unzip -l app-release.apk | grep -E 'lib/(arm64-v8a|x86_64)/libnativevpn\.so'
-      "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs app-release.apk
-      "$ANDROID_HOME/build-tools/35.0.0/aapt2" dump badging app-release.apk | head -n 1
+      "$ANDROID_HOME/build-tools/37.0.0/apksigner" verify --print-certs app-release.apk
+      "$ANDROID_HOME/build-tools/37.0.0/aapt2" dump badging app-release.apk | head -n 1
       ```
 
       Confirm certificate SHA-256
