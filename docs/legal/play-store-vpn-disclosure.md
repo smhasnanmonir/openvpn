@@ -206,7 +206,9 @@ The full step-by-step list is in
 [`docs/compliance/release-checklist.md`](../compliance/release-checklist.md).
 At minimum, for every store upload:
 
-- [ ] privacy policy published and URL set in Console and listing;
+- [ ] privacy policy published at the canonical URL in
+      [`README.md`](README.md) §1, set in Console and listing, and reachable
+      from the app (Settings → About → Privacy policy);
 - [ ] `VpnService` declaration and `specialUse` justification present;
 - [ ] Data safety answers re-confirmed against the shipped `AndroidManifest`
       and network calls (no new SDK/backend);

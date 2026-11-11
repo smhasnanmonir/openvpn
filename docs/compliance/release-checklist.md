@@ -78,9 +78,15 @@ Items that cannot be verified on the build host are marked as manual.
 
 ## 4. Policy / legal / store
 
-- [ ] `docs/legal/privacy-policy.md` is up to date and **published at a stable
-      public HTTPS URL**; that URL is set in Play Console and the store
-      listing, and is reachable without login.
+- [ ] `docs/legal/privacy-policy.md` is up to date and **published at the
+      canonical public HTTPS URL**
+      <https://github.com/smhasnanmonir/openvpn/blob/main/docs/legal/privacy-policy.md>
+      (or a verified custom domain); that URL is set in Play Console and the
+      store listing, is reachable without login, and matches
+      `BuildConfig.PRIVACY_POLICY_URL` (checked in-app via Settings → About →
+      Privacy policy). Publication steps: `docs/legal/README.md` §2.
+- [ ] The Play Console submission items in `docs/legal/README.md` §3 are
+      complete and still match the shipped manifest/behaviour.
 - [ ] Play Console "VPN service" declaration reflects the current
       `VpnService` usage and privacy behaviour.
 - [ ] Foreground-service `specialUse`/`vpn` declaration and justification are
@@ -131,6 +137,10 @@ Items that cannot be verified on the build host are marked as manual.
       explicitly marked "not verified" rather than assumed.
 - [ ] The leak-test matrix status (`docs/security/leak-test-matrix.md`) is
       updated if a physical-device run was performed.
+- [ ] **Commercial launch only:** the independent penetration test in
+      `docs/security/pen-test-scope.md` covers this build, has no open
+      critical/high finding, and all findings are triaged. A release without
+      this evidence must be labelled as a non-commercial/preview build.
 - [ ] Release notes state the intentional behaviour changes for this release
       (see `CHANGELOG.md`): Require tunnel DNS default ON, strict trust
       rejection, compatibility compression default, split tunneling off by

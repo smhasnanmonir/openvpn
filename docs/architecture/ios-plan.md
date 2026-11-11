@@ -162,16 +162,18 @@ Apple requires, for apps that provide VPN services:
 
 ## 7. Open decisions (blocking before implementation)
 
-- Is iOS a funded product requirement, or is this a documentation-only
-  decision? (Current decision: documentation-only.)
-- Which organization owns the Apple Developer account, and is organization
-  enrollment feasible?
-- Which App Store markets are targeted, and are VPN apps permitted there?
-- Is AGPL-3.0 compatible with the intended App Store distribution model after
-  legal review?
-- Is a backend (#16) the credential/profile-sharing mechanism, or independent
-  profiles per platform?
-- Who owns iOS maintenance, the core pin, and the security response SLA?
+Each decision needs a named owner outside this repository; none can be resolved
+by the Android codebase. The current answers are the documented status quo, not
+assumptions.
+
+| Decision | Owner role | Needed by | Current status |
+|---|---|---|---|
+| Is iOS a funded product requirement? | Product owner | Before any iOS work | **Documentation-only** (ADR-015) |
+| Which organization owns the Apple Developer account; is organization enrollment feasible? | Engineering manager + legal | Before TestFlight | Not started — organization enrollment is a guideline 5.4 gate |
+| Which App Store markets are targeted, and are VPN apps permitted there? | Product + legal | Before submission | Not assessed |
+| Is AGPL-3.0 compatible with the intended App Store distribution model? | Legal (with maintainer) | Before implementation | Not reviewed |
+| Is the backend (#16) the credential/profile-sharing mechanism, or are profiles per platform? | Product + security | Before Phase 1 | Unresolved; backend is not funded (#16) |
+| Who owns iOS maintenance, the OpenVPN Core pin and the security response SLA? | Engineering manager | Before implementation | Unassigned |
 
 ## 8. What this repository does instead
 
@@ -182,6 +184,39 @@ Apple requires, for apps that provide VPN services:
   start from zero if it is funded.
 - Does **not** add iOS code, entitlements, or store metadata, and does not
   claim cross-platform support.
+
+## 9. Submission checklist and acceptance status
+
+If iOS is approved, these items must be evidenced before App Store submission.
+None of them is satisfied today because there is no iOS target.
+
+- [ ] Organization Apple Developer Program enrollment confirmed (not individual).
+- [ ] `NEPacketTunnelProvider` target builds for device and simulator; extension
+      entitlements reviewed.
+- [ ] Keychain access groups shared between app and extension; profiles
+      encrypted at rest; no plaintext credentials in logs or defaults.
+- [ ] `includeAllNetworks`/exclusions and on-demand rules defined and documented
+      for users; a manual disconnect path always works.
+- [ ] Captive-portal, Wi-Fi↔cellular, reboot and extension-crash behaviour tested
+      on physical devices.
+- [ ] Privacy policy and App Store privacy answers match the shipped behaviour
+      (reuse or adapt `docs/legal/privacy-policy.md`).
+- [ ] Guideline 5.4 disclosure text in the listing; no misleading VPN claims.
+- [ ] AGPL-3.0 distribution review completed and recorded.
+- [ ] OpenVPN Core pin, SBOM/advisory scanning and patch SLA shared with the
+      Android process.
+
+### Status of issue #20
+
+| Acceptance criterion | Repository deliverable | Status |
+|---|---|---|
+| Platform scope documented | Section 1 and ADR-015 | Done (documentation-only decision) |
+| iOS architecture and entitlement plan exist if in scope | Sections 2–5 | Done (plan only; no code) |
+| Keychain/credential-sharing design reviewed | Section 5 | Design written; **not security-reviewed** (no iOS implementation) |
+| App Store compliance checklist is complete | Sections 4 and 9 | Done (checklist ready; items unverified) |
+
+Issue #20 stays open: closing it requires an approved iOS project and external
+Apple/legal evidence, not more Android code.
 
 ## References
 

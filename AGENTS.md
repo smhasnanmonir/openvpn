@@ -4,12 +4,20 @@
 > what the product is, what has already been built, what is in flight, what is
 > left, and how to verify work. Keep it up to date when you change the project.
 >
-> **Status snapshot: 2026-11-11 ~19:05 Asia/Dhaka (release v1.5.0 published).**
-> Tag **`v1.5.0`** is released from `main` (AGP 9.5.1 / Gradle 9.9.1 / Kotlin
-> 2.4.21 / compileSdk 37 / Compose BOM 2026.09.00); v1.4.0 remains the previous
-> release. Local gates are green; the v1.4.0 live-tunnel verification described
-> below was not re-run for v1.5.0 (there is no app-code change).
-> remaining work is device/store/pen-test (see §8). Do not trust this snapshot
+> **Status snapshot: 2026-11-11 (post-v1.5.0 CI fix, branch
+> `fix/ci-release-gate-and-backlog`).**
+> Tag **`v1.5.0`** points at `main` (`091c2e9`; AGP 9.5.1 / Gradle 9.9.1 /
+> Kotlin 2.4.21 / compileSdk 37 / Compose BOM 2026.09.00), but **the v1.5.0 tag
+> job failed** in "Build signed release and gate the release APK": build-tools
+> 37 `apksigner` prints `V3.0 Signer: certificate SHA-256 digest:` while the
+> gate only matched `Signer #1 certificate SHA-256 digest:`, so the GitHub
+> Release was not published. The fix plus the #15/#16/#20/#21 documentation
+> deliverables are on `fix/ci-release-gate-and-backlog`; after merge, re-run
+> the tag job (recreate `v1.5.0`, or cut `v1.5.1`). v1.4.0 remains the previous
+> published release.
+> The v1.4.0 live-tunnel verification below was not re-run for v1.5.0 (no
+> app-code change then); this branch adds only the Settings privacy link.
+> Remaining work is device/store/pen-test (see §8). Do not trust this snapshot
 > blindly: re-run the verification commands and check GitHub before acting
 > (see §12). Keep it current at merge/release time.
 
@@ -22,16 +30,16 @@
 | Platform | Android OpenVPN client (Kotlin + Jetpack Compose + `VpnService` + OpenVPN 3 Core 3.9 via JNI) |
 | Toolchain | AGP 9.5.1, Gradle wrapper 9.9.1, Kotlin 2.4.21 (AGP built-in Kotlin), compileSdk 37 / targetSdk 35 / minSdk 26, JDK 17, NDK 27.2.12479018, CMake 3.22.1 |
 | `main` | release commit of tag **`v1.5.0`** (resolve with `git rev-parse v1.5.0^{commit}`); previous release **`v1.4.0`** (versionCode 57). v1.5.0 is the toolchain/dependency/CI upgrade; its versionCode comes from the CI run number (> 57) |
-| Active PR | none; v1.5.0 is released, the remaining work is the device/store/pen-test list in section 8 |
+| Active PR | `fix/ci-release-gate-and-backlog` — fixes the v1.5.0 tag-job `apksigner` parsing and finishes the repo deliverables for #15/#16/#20/#21; the remaining work is the device/store/pen-test list in section 8 |
 | PR #5 | **merged** (`eb532ce`); closed #4, #6, #7 |
-| Unit tests | **238 tests / 24 suites / 0 failures** on v1.5.0 (`:app:testDebugUnitTest`, unchanged from v1.4.0). Instrumentation: **9 tests / 9 passed on emulator API 36.1** for v1.4.0; not re-run for v1.5.0 (no app-code change). |
-| Lint | **0 errors, 22 warnings** (`:app:lintDebug` and `:app:lintRelease`; down from 45 with AGP 9 lint plus the v1.5.0 dependency set); `abortOnError=true` |
+| Unit tests | **238 tests / 24 suites / 0 failures** on v1.5.0 and re-verified on `fix/ci-release-gate-and-backlog` (`:app:testDebugUnitTest`; this branch adds no unit tests). Instrumentation: **9 tests / 9 passed on emulator API 36.1** for v1.4.0; not re-run since. |
+| Lint | **0 errors, 22 warnings**, re-verified on this branch for `:app:lintDebug` and `:app:lintRelease` (the new Settings privacy link adds no warning); `abortOnError=true`. |
 | Native | Local `x86_64` build verified: three generated-core-header patches compiled in, LOAD `p_align 0x4000`, RELRO + BIND_NOW, stack canary/FORTIFY symbols. `arm64-v8a` is built and gated in CI only (host has no arm64 deps tree). |
 | 16 KB pages | Debug **and signed release** APKs pass `scripts/check-16kb-alignment.sh` (every packaged `.so` LOAD `p_align 0x4000`, `zipalign -c -P 16 4` OK) in CI for both ABIs (including the new Compose 1.12 `libandroidx.graphics.path.so`). A `google_apis_ps16k` API 36 image was installed and boots with `getconf PAGE_SIZE` = 16384, but SurfaceFlinger (`RegionSampling` SIGABRT) crash-loops on this host, so the app could not be launched on 16 KB here. 16 KB **app launch** is still unverified; a real 16 KB device or different emulator host is needed. |
 | Live tunnel | Verified against a local OpenVPN 2.4 net30 server on emulator API 36.1 with **both the debug APK and the signed/minified v1.4.0 release APK** (import + connect + `ping` 3/3): full tunnel, AEAD-only (AES-256-GCM), strict compression refusal, compatibility LZO-ASYM, DNS fail-closed. Details in `docs/testing.md` ("Live tunnel verification"). |
-| Supply chain | The v1.5.0 release SBOM (223 components locally; CI artifact authoritative) is attached to the GitHub Release and scanned with pinned `osv-scanner v2.7.1` → no issues; gitleaks v8.28.0 with `.gitleaks.toml` → no leaks. Both jobs are **green in the post-merge `security.yml` run** on `main`. |
-| Open issues | #8/#9/#10/#11/#12/#13/#14/#17/#18/#19 closed by PR #22; #15 (publish/Play submission), #16 (backend), #20 (iOS), #21 (physical-device leak matrix/pen test) remain open with the repo deliverables documented |
-| Next action | Device work only: run the physical-device leak-test matrix (`docs/security/leak-test-matrix.md`), verify a 16 KB device/emulator launch, then publish the privacy policy + Play declarations and commission the independent penetration test. |
+| Supply chain | The v1.5.0 SBOM (223 components locally; CI artifact authoritative) was generated and uploaded as a workflow artifact, but the **GitHub Release was not published** because the tag job failed. Scheduled `osv-scanner v2.7.1` and `gitleaks v8.28.0` are green on `main`. Re-run the tag job after this branch merges so the signed APK + SBOM are attached. |
+| Open issues | #8/#9/#10/#11/#12/#13/#14/#17/#18/#19 closed by PR #22. #15/#16/#20/#21 remain open for external evidence; this branch completes the repo-side deliverables (privacy URL + in-app link, role/owner and acceptance tables, pen-test scope). Do not close them for documentation alone. |
+| Next action | Merge this branch, re-run the v1.5.0 tag job (recreate the tag or cut v1.5.1), then device work: run the physical-device leak-test matrix (`docs/security/leak-test-matrix.md`), verify a 16 KB device/emulator launch, publish the privacy policy + Play declarations (`docs/legal/README.md`), and commission the penetration test (`docs/security/pen-test-scope.md`). |
 
 **What “done” looks like for this milestone:** the backlog PR merged; #8–#21
 closed or explicitly tracked (device-only items remain open); privacy policy
@@ -95,8 +103,10 @@ third_party/openvpn3/         # pinned submodule (OpenVPN 3 Core 3.9 @ 10c6a56)
 
 app/src/test/java/...          # JVM unit tests (policies, state, import, stats; no Robolectric)
 app/src/androidTest/java/...   # instrumentation tests (import, native lifecycle, Keystore, user/pass)
-docs/                          # ADRs, security/ (+ leak matrix, MASVS), legal/, compliance/,
-                               # architecture/ (backend/iOS plans), testing, integration, release
+docs/                          # ADRs, security/ (+ leak matrix, MASVS, pen-test scope),
+                               # legal/ (+ privacy/Play docs and publication runbook),
+                               # compliance/, architecture/ (backend/iOS plans), testing,
+                               # integration, release
 scripts/                       # build/fetch native deps, check-16kb-alignment.sh, generate-sbom.sh
 .github/workflows/android.yml  # CI: tests, lint, build, 16 KB gate, SBOM, signed release
 .github/workflows/security.yml # scheduled advisory (osv-scanner) + secret (gitleaks) scans
@@ -223,8 +233,13 @@ Then it runs the **16 KB gate**
 (`scripts/check-16kb-alignment.sh app/build/outputs/apk/debug/app-debug.apk`)
 and generates/uploads the **CycloneDX SBOM**
 (`scripts/generate-sbom.sh`). It uploads the debug APK, androidTest APK, and
-SBOM. On a `v*` tag the release job builds/signs the APK and publishes the APK
-**and SBOM** to the GitHub Release.
+SBOM. On a `v*` tag the release job builds/signs the APK, re-runs the 16 KB/ABI
+gates, asserts the release certificate SHA-256 (`RELEASE_CERT_SHA256`), version
+name/code and non-debuggable badging, then publishes the APK **and SBOM** to the
+GitHub Release. The certificate gate matches the digest field in both
+`apksigner` formats (`Signer #1 certificate SHA-256 digest:` for build-tools
+≤ 36, `V3.0 Signer: certificate SHA-256 digest:` for 37) and fails on multiple
+distinct digests. Do not revert it to a prefix-anchored match.
 
 `.github/workflows/security.yml` (push to `main`, weekly schedule,
 `workflow_dispatch`, **not** a PR check, `permissions: contents: read`) runs
@@ -377,13 +392,13 @@ runtime/device verification.
 | #12 16 KB + hardening | `scripts/check-16kb-alignment.sh` (packaged `.so` LOAD `p_align >= 0x4000`, `zipalign -c -P 16 4`) wired into CI; hardening flags kept/documented. | `docs/testing.md`, `docs/release.md` |
 | #13 supply chain | `scripts/generate-sbom.sh` (CycloneDX, native + Gradle runtime), SBOM artifact + release asset, `.github/workflows/security.yml` (osv-scanner + gitleaks, scheduled/main, read-only), `.github/dependabot.yml`, `SECURITY.md` SLA/emergency process, `docs/compliance/release-checklist.md`. | `docs/release.md` |
 | #14 lifecycle | `desiredConnectedProfileId` persisted separately from native session; `START_STICKY` restore with fresh native session; bounded backoff + bounded jitter; no boot receiver; force-stop/reboot/other-VPN documented. | ADR-013 |
-| #15 compliance | `docs/legal/privacy-policy.md`, `docs/legal/play-store-vpn-disclosure.md` (VpnService/Data-safety/specialUse/`QUERY_ALL_PACKAGES`), `docs/compliance/release-checklist.md`. Publication/submission manual. | ADR-014 scope note |
-| #16 backend | Scope decision + control/data-plane architecture/PKI/device/runbook outline; **no backend code**. | ADR-014, `docs/architecture/backend-control-plane.md` |
+| #15 compliance | `docs/legal/privacy-policy.md` (canonical public URL), `docs/legal/play-store-vpn-disclosure.md` (VpnService/Data-safety/specialUse/`QUERY_ALL_PACKAGES`), `docs/legal/README.md` (publication + Console runbook), in-app Settings → About link (`BuildConfig.PRIVACY_POLICY_URL`), `docs/compliance/release-checklist.md`. Console submission manual. | ADR-014 scope note |
+| #16 backend | Scope decision + control/data-plane architecture/PKI/device design, role-based owners/runbooks, acceptance status; **no backend code**. | ADR-014, `docs/architecture/backend-control-plane.md` |
 | #17 split tunneling | `SplitTunnelPolicy`; Off/Include/Exclude + per-app picker; Home/Settings leak warnings; fail-closed zero-app validation; stale-package filtering; `QUERY_ALL_PACKAGES` declared/justified; changes next connection. | ADR-011, `docs/security.md` |
 | #18 captive portal | `CaptivePortalPolicy`; capability detection, "Pause VPN to sign in", honest `pausedForPortal` state, auto-resume on validated, manual sign-in URL. | ADR-012 |
 | #19 compression/cipher | `CompressionPolicy` (Compatibility default vs Strict) + generated `proto.hpp` patch #3; `CipherPolicy` (Profile default vs AEAD-only `pull-filter` transform); diagnostics state policy. | ADR-010 |
-| #20 iOS | Scope decision + platform/App Store plan; **no iOS code**. | ADR-015, `docs/architecture/ios-plan.md` |
-| #21 assurance | `docs/security/leak-test-matrix.md`, `docs/security/masvs-gap-assessment.md` (MASVS v2 + ASVS note + independent pen-test requirement); automated subset documented. | — |
+| #20 iOS | Scope decision + platform/App Store plan, decision owners, guideline 5.4 submission checklist and acceptance status; **no iOS code**. | ADR-015, `docs/architecture/ios-plan.md` |
+| #21 assurance | `docs/security/leak-test-matrix.md`, `docs/security/masvs-gap-assessment.md` (MASVS v2 + ASVS note + issue status), `docs/security/pen-test-scope.md` (commissionable scope, rules of engagement, release gate); automated subset documented. | — |
 
 Verification status for this PR (honest): new policies are JVM-tested; CI runs
 tests/lint/native builds + 16 KB gate + SBOM; **physical-device leak tests and
@@ -458,8 +473,13 @@ Data-flow invariants:
 ## 7. Issue backlog status (#8–#21)
 
 **At this snapshot all 14 are addressed: #8/#9/#10/#11/#12/#13/#14/#17/#18/#19
-shipped in v1.4.0 and are closed; #15/#16/#20/#21 are documentation/assurance
-deliverables and remain open (no store/backend/iOS code).** Runtime device
+shipped in v1.4.0 and are closed. #15/#16/#20/#21 have all repo-side
+deliverables complete on `fix/ci-release-gate-and-backlog`: privacy URL +
+in-app link + Play runbook (#15), role/owner + acceptance status for the backend
+plan (#16), decision-owner table + App Store checklist + acceptance status for
+iOS (#20), and pen-test scope + acceptance status (#21). They stay **open** until
+the external evidence exists (Console submission, staffed backend, approved iOS
+project, physical-device matrix, independent pen test).** Runtime device
 verification for the leak/kill-switch/portal/lifecycle rows remains **open** and
 must not be claimed. The per-issue descriptions below are the original issue
 text (useful context; several "Current" lines are now stale) — use §4A for what
@@ -838,13 +858,17 @@ explicitly.
 ## 12. Status freshness checklist (run before trusting this file)
 
 - `git status --short --branch` — on the expected branch
-  (`feat/backlog-security-reliability` for the backlog PR); do not switch
+  (`fix/ci-release-gate-and-backlog` for the CI/documentation PR); do not switch
   branches in the shared working tree.
-- Confirm the backlog PR is the active work (`gh pr view`, `gh pr checks`) and
-  that #8–#21 are addressed as in §4A.
+- Confirm the PR is the active work (`gh pr view`, `gh pr checks`) and that
+  #15/#16/#20/#21 repo deliverables match §4A/§7.
 - `.\gradlew.bat --no-daemon :app:testDebugUnitTest` — expect **238 tests /
-  24 suites / 0 failures** on the release-1.5.0 candidate (unchanged from
-  v1.4.0). Then `:app:lintDebug` (0 errors, 22 warnings) and `assembleDebug`.
+  24 suites / 0 failures** (verified on this branch). Then `:app:lintDebug`
+  and `:app:lintRelease` (0 errors, 22 warnings each, verified) and
+  `assembleDebug`.
+- For a `v*` tag, confirm the release gate reads the certificate digest from
+  build-tools 37 `apksigner` output (`V3.0 Signer: certificate SHA-256 digest:`)
+  and still matches `Signer #1 certificate SHA-256 digest:` on older tools.
 - `:app:assembleDebugAndroidTest` must compile (it did on the merge candidate).
 - `:app:externalNativeBuildDebug -Pabis=x86_64` must succeed and the generated
   header must contain all three patches (§3.2).
@@ -872,12 +896,14 @@ explicitly.
 - Readiness: `docs/security-readiness.md` (status per area + issue map)
 - Verification log: `docs/testing.md` (unit/instrumentation/manual/backlog PR)
 - Leak matrix: `docs/security/leak-test-matrix.md`;
-  MASVS/ASVS assessment: `docs/security/masvs-gap-assessment.md`
+  MASVS/ASVS assessment: `docs/security/masvs-gap-assessment.md`;
+  pen-test scope/rules/release gate: `docs/security/pen-test-scope.md`
 - Core integration + pinned versions: `docs/openvpn-core-integration.md`
 - Security model: `docs/security.md`; release process: `docs/release.md`;
   performance: `docs/performance.md`
 - Legal/store: `docs/legal/privacy-policy.md`,
-  `docs/legal/play-store-vpn-disclosure.md`,
+  `docs/legal/play-store-vpn-disclosure.md`, `docs/legal/README.md`
+  (canonical URL + publication/Console runbook),
   `docs/compliance/release-checklist.md`
 - Architecture: `docs/architecture.md`, `docs/architecture/backend-control-plane.md`,
   `docs/architecture/ios-plan.md`

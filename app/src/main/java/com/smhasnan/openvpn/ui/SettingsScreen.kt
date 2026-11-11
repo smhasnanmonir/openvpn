@@ -39,6 +39,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -86,6 +87,7 @@ fun SettingsScreen(
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
+    val uriHandler = LocalUriHandler.current
     val coreVersion = engineInfo["coreVersion"] ?: "unknown"
     val platform = remember(engineInfo["platform"], coreVersion) {
         val raw = engineInfo["platform"] ?: "unknown"
@@ -509,6 +511,16 @@ fun SettingsScreen(
                         )
                     }
                 }
+                DividerLine()
+                Spacer(Modifier.height(4.dp))
+                LinkRow(
+                    title = "Privacy policy",
+                    subtitle = "What the app stores, the optional public-IP check, and what never leaves the device.",
+                    trailingLabel = "Open",
+                    onClick = {
+                        runCatching { uriHandler.openUri(BuildConfig.PRIVACY_POLICY_URL) }
+                    },
+                )
             }
         }
     }

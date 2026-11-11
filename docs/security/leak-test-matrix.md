@@ -241,7 +241,8 @@ section 3.
 - Revocation behaviour is server/PKI-side and is not tested by this client
   matrix (see ADR-009).
 - MASVS/ASVS assessment and independent penetration test:
-  `docs/security/masvs-gap-assessment.md`.
+  `docs/security/masvs-gap-assessment.md`; the commissionable scope and release
+  gate are in `docs/security/pen-test-scope.md`.
 
 ## 8. Recording results
 
