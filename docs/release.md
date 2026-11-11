@@ -78,7 +78,10 @@ digest only when the release key itself is rotated.
 1. checkout with the pinned OpenVPN Core submodule;
 2. install JDK 17, Android SDK 35, NDK 27.2.12479018, CMake 3.22.1;
 3. restore/build checksum-verified native dependencies;
-4. run unit tests, lint, debug APK build, instrumentation-test APK build;
+4. run unit tests, lint, debug APK build, instrumentation-test APK build through
+   the **project Gradle wrapper** (`./gradlew`); CI fails if the wrapper
+   distribution in `gradle/wrapper/gradle-wrapper.properties` is not the Gradle
+   version that `./gradlew` reports, so a wrapper bump is really exercised;
 5. verify 16 KB page-size compatibility on the debug APK
    (`bash scripts/check-16kb-alignment.sh`: every packaged `.so` `LOAD` segment
    `p_align >= 0x4000`, plus `zipalign -c -P 16 4`) and assert that the default
