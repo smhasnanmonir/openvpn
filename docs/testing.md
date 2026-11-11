@@ -572,6 +572,9 @@ in `docs/security/leak-test-matrix.md`.
   `main`); `abortOnError=true`.
 - `:app:assembleDebug -Pabis=x86_64` and `:app:assembleDebugAndroidTest` —
   **BUILD SUCCESSFUL**.
+- `:app:connectedDebugAndroidTest -Pabis=x86_64` on emulator `ncvpnverify`
+  (API 36.1) — **9 tests started / 9 finished, 0 failures** (instrumentation
+  tests were previously only compiled in CI, never executed on a device).
 - `:app:externalNativeBuildDebug -Pabis=x86_64` — **BUILD SUCCESSFUL**: the
   generated `proto.hpp` contains all three patches, and `libnativevpn.so` has
   LOAD `p_align=0x4000`, GNU_RELRO + `BIND_NOW`, and stack-canary/FORTIFY

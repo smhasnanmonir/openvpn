@@ -4,11 +4,13 @@
 > what the product is, what has already been built, what is in flight, what is
 > left, and how to verify work. Keep it up to date when you change the project.
 >
-> **Status snapshot: 2026-11-11 ~16:40 Asia/Dhaka (release 1.4.0 merge
-> candidate: backlog PR #22 + review fixes, local gates green and live tunnel
-> verification done).** Do not trust this snapshot blindly: re-run the
-> verification commands and check GitHub before acting (see §12). This file is
-> committed with the release PR; keep it current at merge time.
+> **Status snapshot: 2026-11-11 ~16:45 Asia/Dhaka (release v1.4.0 published).**
+> PR #22 merged (`2c3ac3b`), tag `v1.4.0` released and its APK/SBOM verified;
+> `main` also has `e9ba67d`, a workflow-only fix for the security job's SBOM
+> placeholder version. Local gates and the live tunnel verification are green;
+> remaining work is device/store/pen-test (see §8). Do not trust this snapshot
+> blindly: re-run the verification commands and check GitHub before acting
+> (see §12). Keep it current at merge/release time.
 
 ---
 
@@ -17,17 +19,17 @@
 | Item | Value |
 |---|---|
 | Platform | Android OpenVPN client (Kotlin + Jetpack Compose + `VpnService` + OpenVPN 3 Core 3.9 via JNI) |
-| `main` | `eb532ce` “Merge pull request #5 …”; last release tag `v1.3.0` (versionCode 45); next tag `v1.4.0` |
-| Active PR | **#22** security/reliability backlog (#8–#21) + release review fixes, branch `feat/backlog-security-reliability`; CI “Build, test, lint” **green**; local gates re-run after the review fixes |
+| `main` | `e9ba67d` (release merge `2c3ac3b` + workflow-only SBOM placeholder fix); last release tag **`v1.4.0`** (versionCode 57, APK + SBOM published and verified) |
+| Active PR | **#22** (backlog security/reliability + release review fixes) — **merged** into `main`; CI green on the PR, merge, tag and post-merge commits |
 | PR #5 | **merged** (`eb532ce`); closed #4, #6, #7 |
-| Unit tests | **238 tests / 24 suites / 0 failures** (`:app:testDebugUnitTest`, release-1.4.0 candidate; was 110/16 on `main`, 225/24 before the review fixes). |
+| Unit tests | **238 tests / 24 suites / 0 failures** (`:app:testDebugUnitTest`; was 110/16 on `main` before the backlog, 225/24 before the review fixes). Instrumentation: **9 tests / 9 passed on emulator API 36.1** (`:app:connectedDebugAndroidTest`). |
 | Lint | **0 errors, 45 warnings** (`:app:lintDebug`, unchanged warning count); `abortOnError=true` |
 | Native | Local `x86_64` build verified: three generated-core-header patches compiled in, LOAD `p_align 0x4000`, RELRO + BIND_NOW, stack canary/FORTIFY symbols. `arm64-v8a` is built and gated in CI only (host has no arm64 deps tree). |
 | 16 KB pages | Fresh APK passes `scripts/check-16kb-alignment.sh` (every packaged `.so` LOAD `p_align 0x4000`, `zipalign -c -P 16 4` OK); CI gates debug **and signed release** APKs for both ABIs. A 16 KB emulator image could not be installed on this host (disk), so 16 KB device launch is still unverified. |
 | Live tunnel | Verified against a local OpenVPN 2.4 net30 server on emulator API 36.1: full tunnel + ping, AEAD-only (AES-256-GCM), strict compression refusal, compatibility LZO-ASYM, DNS fail-closed. Details in `docs/testing.md` (“Live tunnel verification”). |
-| Supply chain | SBOM (181 components) scanned with pinned `osv-scanner v2.7.1` → no issues; gitleaks v8.28.0 over 96 commits with `.gitleaks.toml` → no leaks. |
-| Open issues | The PR closes #8/#9/#10/#11/#12/#13/#14/#17/#18/#19 and keeps #15 (publish/Play submission), #16 (backend), #20 (iOS), #21 (physical-device leak matrix/pen test) open with the repo deliverables documented |
-| Next action | Merge PR #22, tag `v1.4.0`, verify the published APK/SBOM assets (cert digest, versionName/versionCode, both ABIs, 16 KB gate), then run `security.yml` via `workflow_dispatch`; execute the physical-device leak-test matrix and publish the privacy policy / Play declarations. |
+| Supply chain | Release SBOM (181 components) scanned with pinned `osv-scanner v2.7.1` → no issues; gitleaks v8.28.0 with `.gitleaks.toml` → no leaks. Both jobs are **green in the post-merge `security.yml` run** on `main`. |
+| Open issues | #8/#9/#10/#11/#12/#13/#14/#17/#18/#19 closed by PR #22; #15 (publish/Play submission), #16 (backend), #20 (iOS), #21 (physical-device leak matrix/pen test) remain open with the repo deliverables documented |
+| Next action | Device work only: run the physical-device leak-test matrix (`docs/security/leak-test-matrix.md`), verify a 16 KB device/emulator launch, then publish the privacy policy + Play declarations and commission the independent penetration test. |
 
 **What “done” looks like for this milestone:** the backlog PR merged; #8–#21
 closed or explicitly tracked (device-only items remain open); privacy policy
@@ -393,7 +395,11 @@ and `docs/security/leak-test-matrix.md` §7.
 - PR #5 (merged, `eb532ce`): reliability fixes (#4/#6/#7), security hardening,
   readiness audit, review-fix pass in §4.
 - Backlog PR (`feat/backlog-security-reliability`): the #8–#21 security/
-  reliability/compliance/CI work in §4A. This is where the project is now.
+  reliability/compliance/CI work in §4A; merged as `2c3ac3b`.
+- **v1.4.0** (`2c3ac3b`, tag `v1.4.0`): backlog + review fixes released; signed
+  APK (both ABIs, 16 KB aligned, v1.3.0 key) and the SBOM are on the GitHub
+  Release. `main` then got `e9ba67d`, a workflow-only fix for the security
+  job's SBOM placeholder versionCode.
 
 ---
 
@@ -440,14 +446,13 @@ Data-flow invariants:
 
 ## 7. Issue backlog status (#8–#21)
 
-**At this snapshot all 14 are addressed by the backlog PR (§4A), pending review
-and merge.** #8/#9/#10/#11/#12/#13/#14/#17/#18/#19 have code + tests/policy
-objects; #15/#16/#20/#21 are documentation/assurance deliverables (no
-store/backend/iOS code). Runtime device verification for the leak/kill-switch/
-portal/lifecycle rows remains **open** and must not be claimed. The per-issue
-descriptions below are the original issue text (useful context; several "Current"
-lines are now stale) — use §4A for what shipped and `docs/security-readiness.md`
-for the current honest status.
+**At this snapshot all 14 are addressed: #8/#9/#10/#11/#12/#13/#14/#17/#18/#19
+shipped in v1.4.0 and are closed; #15/#16/#20/#21 are documentation/assurance
+deliverables and remain open (no store/backend/iOS code).** Runtime device
+verification for the leak/kill-switch/portal/lifecycle rows remains **open** and
+must not be claimed. The per-issue descriptions below are the original issue
+text (useful context; several "Current" lines are now stale) — use §4A for what
+shipped and `docs/security-readiness.md` for the current honest status.
 
 Issues: #8–#21. PR #5 (merged) advanced some; do not close anything solely
 because PR #5 merged.
