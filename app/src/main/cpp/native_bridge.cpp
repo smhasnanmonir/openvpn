@@ -250,6 +250,19 @@ class JniSession final : public monirvpn::EngineCallbacks
         return true;
     }
 
+    bool resume()
+    {
+        std::shared_ptr<monirvpn::OvpnClient> client;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            client = client_;
+        }
+        if (!client)
+            return false;
+        client->resume();
+        return true;
+    }
+
     std::string stats_json()
     {
         std::shared_ptr<monirvpn::OvpnClient> client;
@@ -720,6 +733,14 @@ Java_com_smhasnan_openvpn_nativevpn_OpenVpnNative_reconnect(JNIEnv *, jobject, j
 {
     if (auto *session = from_handle(handle))
         return session->reconnect(static_cast<int>(seconds)) ? JNI_TRUE : JNI_FALSE;
+    return JNI_FALSE;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_smhasnan_openvpn_nativevpn_OpenVpnNative_resume(JNIEnv *, jobject, jlong handle)
+{
+    if (auto *session = from_handle(handle))
+        return session->resume() ? JNI_TRUE : JNI_FALSE;
     return JNI_FALSE;
 }
 

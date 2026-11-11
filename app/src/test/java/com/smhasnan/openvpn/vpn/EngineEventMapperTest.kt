@@ -51,6 +51,56 @@ class EngineEventMapperTest {
     }
 
     @Test
+    fun unhandledEngineExceptionGetsAnActionableMessage() {
+        val mapped = EngineEventMapper.map(
+            "SESSION_FINISHED",
+            "client_connect_unhandled_exception",
+            error = true,
+            fatal = false,
+        )
+        assertEquals(VpnState.ERROR, mapped.state)
+        assertTrue(mapped.message!!.contains("unexpectedly"))
+        assertTrue(mapped.message!!.contains("Diagnostics"))
+        assertFalse(mapped.message!!.contains("client_connect_unhandled_exception"))
+    }
+
+    @Test
+    fun keyingMaterialExportFailureExplainsTheRekey() {
+        // The real payload is the generic unhandled-exception text (see
+        // native_bridge.cpp); the engine log for the same session supplies the
+        // keying-material hint. This is the payload the app actually receives.
+        val mapped = EngineEventMapper.map(
+            "SESSION_FINISHED",
+            "client_connect_unhandled_exception",
+            error = true,
+            fatal = false,
+            rekeyHint = true,
+        )
+        assertEquals(VpnState.ERROR, mapped.state)
+        assertTrue(mapped.message!!.contains("key renegotiation", ignoreCase = true))
+        assertTrue(mapped.message!!.contains("Reconnect", ignoreCase = true))
+        assertFalse(mapped.message!!.contains("client_connect_unhandled_exception"))
+    }
+
+    @Test
+    fun keyingMaterialTextStillExplainsTheRekeyWithoutAHint() {
+        val mapped = EngineEventMapper.map(
+            "SESSION_FINISHED",
+            "TLS Keying material export error",
+            error = true,
+            fatal = false,
+        )
+        assertEquals(VpnState.ERROR, mapped.state)
+        assertTrue(mapped.message!!.contains("key renegotiation", ignoreCase = true))
+    }
+
+    @Test
+    fun otherSessionFinishedErrorsKeepTheEngineDetail() {
+        val mapped = EngineEventMapper.map("SESSION_FINISHED", "failed", true, false)
+        assertEquals("failed", mapped.message)
+    }
+
+    @Test
     fun silentFatalTimeoutEventsCarryActionableMessages() {
         listOf("CONNECTION_TIMEOUT", "INACTIVE_TIMEOUT", "TLS_VERSION_MIN").forEach { name ->
             val mapped = EngineEventMapper.map(name, "", true, true)
@@ -71,6 +121,43 @@ class EngineEventMapperTest {
         // The mapper itself must not request clearing an error on DISCONNECTED:
         // the core sends this event right after a fatal failure.
         assertFalse(EngineEventMapper.map("DISCONNECTED", "", false, false).clearError)
+    }
+
+    @Test
+    fun pauseAfterAConnectedSessionKeepsTheSessionAlive() {
+        val mapped = EngineEventMapper.map("PAUSE", "", false, false)
+        assertEquals(VpnState.RECONNECTING, mapped.state)
+        assertTrue(mapped.clearError)
+        assertTrue(mapped.message!!.contains("timed out", ignoreCase = true))
+        assertTrue(mapped.message!!.contains("retry", ignoreCase = true))
+    }
+
+    @Test
+    fun resumeReturnsToTheReconnectingStateAndClearsTheError() {
+        val mapped = EngineEventMapper.map("RESUME", "", false, false)
+        assertEquals(VpnState.RECONNECTING, mapped.state)
+        assertTrue(mapped.clearError)
+    }
+
+    @Test
+    fun certificateVerificationFailureIsActionable() {
+        val mapped = EngineEventMapper.map("CERT_VERIFY_FAIL", "", true, true)
+        assertEquals(VpnState.ERROR, mapped.state)
+        assertTrue(mapped.message!!.contains("certificate", ignoreCase = true))
+        assertTrue(mapped.message!!.contains("serverAuth", ignoreCase = true))
+        assertTrue(mapped.message!!.contains("clock", ignoreCase = true))
+    }
+
+    @Test
+    fun networkUnavailableSessionFailureIsActionable() {
+        val mapped = EngineEventMapper.map(
+            "SESSION_FINISHED",
+            "Network Unavailable",
+            error = true,
+            fatal = false,
+        )
+        assertEquals(VpnState.ERROR, mapped.state)
+        assertTrue(mapped.message!!.contains("No usable network", ignoreCase = true))
     }
 
     @Test

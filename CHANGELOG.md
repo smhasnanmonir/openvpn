@@ -2,6 +2,64 @@
 
 All notable changes to this project are documented here.
 
+## [Unreleased]
+
+### Fixed
+
+- Long-lived sessions no longer disconnect at the first rekey when the server
+  offers dynamic tls-crypt on the mbedTLS build. OpenVPN Core 3.9 advertised
+  `IV_PROTO_DYN_TLS_CRYPT` even though the pinned mbedTLS backend cannot export
+  keying material; the build now gates the advertisement on
+  `support_key_material_export()`. A server that pushes the flag anyway is
+  rejected with a clear server-push error instead of crashing at the first
+  rekey (ADR-006).
+- A rekey/key-export failure or an unhandled Core exception now produces an
+  actionable error message instead of the raw
+  `client_connect_unhandled_exception` text. A rekey failure is identified from
+  the engine's keying-material log line, so it gets the specific message rather
+  than the generic "engine stopped" text; the engine detail remains in
+  Diagnostics.
+- A connection timeout during an automatic reconnect (for example after
+  locking/unlocking the phone or a transient network transition) no longer ends
+  an established session with a fatal error. Core pauses the session and the
+  service retries with exponential backoff (5 s doubling to 60 s, capped at six
+  attempts per connected session), then fails visibly instead of leaving the app
+  in "Reconnecting" with unprotected traffic. While paused there is no tunnel,
+  so traffic is not protected until a resume attempt succeeds. An initial
+  connection timeout still surfaces as an error (ADR-007).
+- The Home screen's Download and Upload counters were swapped because Core's
+  TUN counters use the tunnel device's direction. Download now maps to
+  `TUN_BYTES_OUT` and upload to `TUN_BYTES_IN`, with the transport counters kept
+  in the socket's direction for the fallback.
+- Android Always-on VPN / lockdown starts the service with
+  `VpnService.SERVICE_INTERFACE`; the service now connects the persisted
+  selected profile with stored credentials instead of ignoring the start. It
+  uses the explicitly persisted profile id (no silent substitution), and the
+  Always-on start returns `START_STICKY` so a killed process can be restarted.
+- CA-based profiles that did not explicitly constrain server-certificate usage
+  now get `remote-cert-tls server` at import and connect time, preventing a
+  client certificate from being accepted as the server. Inline
+  `<peer-fingerprint>` blocks are recognised as an explicit policy.
+- The VPN network now inherits the underlying network's metered state on
+  Android 10+, so data-saver/background restrictions are not bypassed.
+- The native library is linked with 16 KB page-size alignment for Android 15+
+  devices.
+- `UDP send exception: send: Message too long` now produces a Diagnostics hint
+  about lowering `tun-mtu`, logged once per connection instead of for every
+  oversized packet; certificate-verification, proxy-credential and
+  network-unavailable failures have actionable messages.
+
+### Compatibility
+
+- **Server-certificate usage enforcement.** The `remote-cert-tls server`
+  directive added to CA-based profiles is a deliberate verification change, not
+  a neutral option. A server certificate without the `serverAuth` extended key
+  usage (or with incompatible key usage) now fails with `CERT_VERIFY_FAIL`
+  instead of connecting on CA trust alone. Profiles imported by older app
+  versions are also affected because the directive is applied at connect time.
+  Re-import with an explicit server-certificate policy if a legacy server
+  cannot present a serverAuth certificate.
+
 ## [1.2.0] - 2026-11-10
 
 ### Added

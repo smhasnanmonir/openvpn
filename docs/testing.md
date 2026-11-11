@@ -285,13 +285,267 @@ Residual notes: the in-app public-IP check timed out once through one US node
 independently confirmed); provider byte counters were small (KB) but tunnel data
 flow and egress-IP change were confirmed.
 
+## Rekey stability: dynamic tls-crypt on mbedTLS (2026-11-10)
+
+Context: the provider session from ADR-005 stayed up for about 54 minutes and
+then disconnected at the first TLS rekey:
+
+```text
+02:12:07 INFO UDP send exception: send: Message too long
+02:20:18 INFO Transport Error: TLS Keying material export error
+02:20:18 INFO DISCONNECTED
+02:20:18 ERROR client_connect_unhandled_exception
+```
+
+The server had pushed `protocol-flags [cc-exit] [dyn-tls-crypt]`. On the first
+rekey, Core tried to export keying material for dynamic tls-crypt, but the
+pinned mbedTLS backend returns `false` from `export_keying_material()`. The
+resulting `KEY_EXPANSION_ERROR` is not handled by `ClientConnect`, so it became
+`client_connect_unhandled_exception`. See ADR-006 for the full trace.
+
+Fix: the CMake build now generates a patched copy of the pinned
+`openvpn/ssl/proto.hpp` that only advertises `IV_PROTO_DYN_TLS_CRYPT` when
+`SSLLib::SSLAPI::support_key_material_export()` is true, and rejects a
+server-pushed `dyn-tls-crypt` flag with a clear server-push error when the
+backend cannot export keying material. The submodule commit is unchanged.
+`EngineEventMapper` also translates the raw failure into an actionable message;
+because Core reports the rekey failure as the generic
+`client_connect_unhandled_exception` text, the service supplies the
+keying-material hint from the preceding engine log line instead of relying on
+the event text alone.
+
+Verification performed on this branch:
+
+```bash
+./gradlew --no-daemon \
+  :app:testDebugUnitTest \
+  :app:lintDebug \
+  :app:assembleDebug \
+  :app:assembleDebugAndroidTest
+```
+
+Result: **pass**. 110 unit tests in 16 suites, 0 failures; lint 0 errors; debug
+APK and instrumentation-test APK built. The native target was also built
+explicitly with `:app:externalNativeBuildDebug` for `arm64-v8a` and `x86_64`,
+and the generated header was inspected to confirm the gated advertisement:
+
+```cpp
+if (SSLLib::SSLAPI::support_key_material_export()
+    && CryptoAlgs::lookup("SHA256") != CryptoAlgs::NONE
+    && CryptoAlgs::lookup("AES-256-CTR") != CryptoAlgs::NONE)
+    iv_proto |= IV_PROTO_DYN_TLS_CRYPT;
+```
+
+Manual checks still required (a live rekey is time-based and was not run here):
+
+- [ ] On a controlled server, set `reneg-sec 60` (or wait for the provider's
+      rekey interval) and keep the tunnel connected past the rekey. Expect no
+      `TLS Keying material export error`, no `client_connect_unhandled_exception`,
+      and no disconnect.
+- [ ] In Diagnostics, confirm this build no longer logs
+      `control channel: dynamic tls-crypt enabled` for a server that offers it;
+      the session rekeys using the configured control-channel protection.
+- [ ] Reconnect and repeat once to rule out a one-off network transition.
+
+Residual notes: the `UDP send exception: send: Message too long` line is a
+separate, non-fatal send failure; it is not the cause of the disconnect and was
+left as a diagnostic observation. A server that requires dynamic tls-crypt
+cannot complete a rekey with the pinned mbedTLS backend; the app now negotiates
+without advertising it instead of failing after the session is established.
+
+## Lock/unlock reconnect and traffic counters (2026-11-10)
+
+Two follow-up problems were reported on the same branch:
+
+1. After locking the phone and unlocking it, the app showed
+   `Connection timed out before the TLS handshake completed…`. The session had
+   already been connected; Core was retrying after the device slept/network
+   transitioned, and its `connTimeout` expired. The app returned `false` from
+   `pause_on_connection_timeout()` unconditionally, so Core emitted a fatal
+   `CONNECTION_TIMEOUT` instead of pausing. `OvpnClient` now returns `true` only
+   after the client has reached `CONNECTED`; `PAUSE`/`RESUME` map to
+   `RECONNECTING`, and the service retries with `OpenVPNClient::resume()` while
+   the network is online. The retry is bounded by `PauseRetryPolicy`: 5 s
+   initial delay, doubling to 60 s, at most six attempts per connected session,
+   then an explicit "traffic is no longer protected" error. An initial
+   connection timeout still produces the existing error. See ADR-007.
+2. Download and upload were swapped on Home. Core's TUN counters are named from
+   the tunnel device's perspective: `TUN_BYTES_OUT` is written to the TUN
+   (server → client, download) and `TUN_BYTES_IN` is read from it (client →
+   server, upload). The transport `BYTES_IN`/`BYTES_OUT` fallback uses the
+   socket's perspective and is already in the app's order. The mapping now
+   keeps `bytesIn` = download and `bytesOut` = upload and never mixes the two
+   directions when TUN counters are only partially populated.
+
+Verification performed on this branch:
+
+```bash
+./gradlew --no-daemon \
+  :app:testDebugUnitTest \
+  :app:lintDebug \
+  :app:assembleDebug \
+  :app:assembleDebugAndroidTest
+```
+
+Result: **pass**. 110 unit tests in 16 suites, 0 failures; lint 0 errors; debug
+APK and instrumentation-test APK built. `:app:externalNativeBuildDebug` built
+`arm64-v8a` and `x86_64`. New coverage: `NativeEngineStatsTest` pins the
+download/upload direction (including the transport fallback and partial TUN
+counters), `EngineEventMapperTest` covers `PAUSE`/`RESUME`, and
+`PauseRetryPolicyTest` pins the backoff/cap of the bounded resume policy.
+
+Manual checks still required:
+
+- [ ] Connect, lock the phone, wait longer than `connTimeout` (60 s), then
+      unlock. Expect the state to move to Reconnecting and back to Connected
+      without a fatal timeout banner.
+- [ ] While reconnecting, tap Disconnect: the service stops and no retry loop
+      remains.
+- [ ] Leave the session paused against a reachable network but an unreachable
+      server: after six bounded attempts the app must show the explicit
+      "could not reconnect / traffic is no longer protected" error and stop
+      claiming "Reconnecting".
+- [ ] Confirm that while paused (no tunnel) the notification/state do not claim
+      the device is protected; on a non-lockdown Always-on device Android
+      restores the underlying network as soon as the TUN descriptor closes.
+- [ ] Download a known file and confirm the Home "Download" counter grows;
+      upload a file and confirm "Upload" grows.
+- [ ] Confirm a first connection to an unreachable server still ends with the
+      actionable connection-timeout error.
+
+Residual risk: a paused session tears down the old TUN, and Android restores
+the underlying network, so traffic is unprotected until a resume attempt
+succeeds. Retries are bounded and end with an explicit error; the app keeps
+`tunPersist = false` by design, so there is no persistent tunnel during the
+pause. See ADR-007.
+
+## Security hardening pass (2026-11-10)
+
+Follow-up audit against the common VPN-client failure classes (leaks, server
+impersonation, platform lifecycle, MTU, supply chain) produced these changes:
+
+- **Always-on VPN start.** Android starts a VpnService with
+  `VpnService.SERVICE_INTERFACE` for Always-on/lockdown, not the app's own
+  `ACTION_CONNECT`. `MyVpnService` now refreshes the profile index, uses the
+  persisted selected profile, and connects with stored credentials. Without this
+  the system-level kill switch could never bring the tunnel up.
+- **Server certificate usage.** `ProfileImportPolicy.withServerCertificateUsage`
+  appends `remote-cert-tls server` at import and connect when a profile has a CA
+  but no explicit `remote-cert-*`, `tls-remote`, or `peer-fingerprint` policy.
+  This prevents a client certificate signed by the same CA from being accepted
+  as the server. The change is logged and idempotent.
+- **Metered network inheritance.** `VpnService.Builder.setMetered()` follows the
+  underlying network on Android 10+ so data-saver/background restrictions are
+  not bypassed by an always-unmetered VPN.
+- **16 KB page-size alignment.** The native shared library is linked with
+  `-Wl,-z,max-page-size=16384`; the built `arm64-v8a` library reports `LOAD`
+  alignment `0x4000`.
+- **MTU diagnostics.** A `UDP send exception: send: Message too long` engine line
+  now produces a Diagnostics warning suggesting a lower `tun-mtu`.
+- **Clearer failures.** `CERT_VERIFY_FAIL`, proxy credential failures, and
+  `Network Unavailable` session endings now have actionable messages; the raw
+  engine detail is still logged.
+
+Verification:
+
+```bash
+./gradlew --no-daemon \
+  :app:testDebugUnitTest \
+  :app:lintDebug \
+  :app:assembleDebug \
+  :app:assembleDebugAndroidTest
+```
+
+Result: **pass**. 110 unit tests in 16 suites, 0 failures; lint 0 errors; debug
+and instrumentation-test APKs built. `:app:externalNativeBuildDebug` built
+`arm64-v8a` and `x86_64`; `readelf -l` on the arm64 library shows `LOAD`
+alignment `0x4000`.
+
+Manual checks still required:
+
+- [ ] Enable Android Always-on VPN for this app. Remove the process with
+      `adb shell am kill com.smhasnan.openvpn` (not force-stop, which disables
+      background starts until the app is opened again) and confirm the system
+      starts the service with `SERVICE_INTERFACE` and the tunnel comes back with
+      the persisted selected profile. Repeat after reboot; before the first
+      unlock the service cannot restore the tunnel because the app is not
+      direct-boot aware, so unlock first and confirm it comes up afterwards.
+- [ ] Enable lockdown, disable all networks, and confirm protected traffic is
+      blocked.
+- [ ] Connect to a server whose certificate is signed by the profile CA but is a
+      client certificate; confirm `CERT_VERIFY_FAIL` and no connection. Also
+      test a CA-signed server certificate without `serverAuth` EKU: this now
+      fails by design (the deliberate compatibility break noted in the
+      changelog), and the failure message should name the server-auth usage.
+- [ ] Connect on a metered network and confirm the VPN is reported as metered.
+- [ ] Install and connect on a 16 KB page-size Android 15 device/emulator.
+- [ ] Reproduce an MTU black hole and confirm the new Diagnostics hint appears.
+
+The remaining gaps (DNS leak fail-closed mode, configurable MTU, strict
+certificate validation, split tunneling, captive portals, process-death/backoff,
+supply-chain monitoring, privacy/store compliance, leak-test matrix) are tracked
+in `docs/security-readiness.md` and issues #8–#21.
+
+## Review-fix pass: bounded pause retries, rekey hint, Always-on lifecycle (2026-11-11)
+
+Follow-up from the PR #5 review. Changes in this pass:
+
+- Paused-session retries are bounded by `PauseRetryPolicy` (5 s initial delay,
+  doubling to 60 s, at most six attempts per connected session), then the
+  session fails visibly with a "traffic is no longer protected" error. The loop
+  no longer trusts the JNI `resume()` return value (Core's `resume()` is a
+  `void` API that silently ignores a non-paused/halted session), and a `PAUSE`
+  racing a user disconnect is ignored.
+- The rekey explanation is derived from the engine's keying-material log line,
+  because Core reports only `client_connect_unhandled_exception` in the event
+  payload; the specific message is now reachable and covered by a test using the
+  real payload.
+- The generated Core header also rejects a server-pushed `dyn-tls-crypt` with a
+  clear server-push error; the patch text is line-ending normalised and the
+  generated file is only rewritten when its content changes.
+- `<peer-fingerprint>` inline blocks are recognised as an explicit
+  server-certificate policy.
+- Always-on starts use the explicitly persisted profile id (no silent
+  substitution), return `START_STICKY` for the system start, and honour a
+  null-intent redelivery only when `isAlwaysOn`; a start racing teardown is
+  ignored.
+- `CancellationException` is rethrown instead of becoming a spurious global
+  error after a user disconnect; the resume job is joined before the native
+  session is closed; the MTU warning is logged once per connection.
+- Import failure after appending `remote-cert-tls server` now carries the
+  engine detail, and dedupe accepts the pre-hardening hash so an upgrade
+  re-import is not duplicated.
+- Documentation: ADR-006/ADR-007 corrected (unprotected pause window, bounded
+  retry cadence, server-push rejection); the `serverAuth` EKU compatibility
+  break is called out in the changelog; Always-on/process-death readiness
+  statuses downgraded to partial and the force-stop manual check replaced.
+
+Verification performed on this branch:
+
+```bash
+./gradlew --no-daemon \
+  :app:testDebugUnitTest \
+  :app:lintDebug \
+  :app:assembleDebug \
+  :app:externalNativeBuildDebug -Pabis=x86_64
+```
+
+Result: **pass**. 110 unit tests in 16 suites, 0 failures (new
+`PauseRetryPolicyTest`, a rekey-hint test using the real event payload, and an
+inline `<peer-fingerprint>` test); lint 0 errors; debug APK built. The `x86_64`
+native target rebuilt the patched header and compiled it; the generated header
+contains both the advertisement guard and the server-push rejection. The same
+CMake logic applies to every ABI; `arm64-v8a` was verified before this pass.
+Device manual checks above remain required because the retry/Always-on
+behaviour needs a real device.
+
 ## What is verified vs. not verified
 
 | Check | Status |
 |---|---|
 | Debug APK builds | ✅ verified |
 | Both ABI native libraries build | ✅ verified |
-| Unit tests (52) | ✅ verified |
+| Unit tests (110) | ✅ verified |
 | Android lint | ✅ verified |
 | Signed, minified release APK | ✅ verified |
 | R8 keeps JNI callbacks | ✅ verified by dexdump |

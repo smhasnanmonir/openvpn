@@ -44,6 +44,49 @@ object ProfileImportPolicy {
     /** True when the profile explicitly asks for an external PKI provider. */
     fun declaresExternalPki(config: String): Boolean = EXTERNAL_PKI_DIRECTIVE.containsMatchIn(config)
 
+    /**
+     * Any explicit server-certificate usage/identity directive. If one of these
+     * is present the profile author has made a deliberate choice; do not add a
+     * second check on top of it.
+     */
+    private val SERVER_CERTIFICATE_DIRECTIVE = Regex(
+        pattern = "^(?![ \\t]*[#;])[ \\t]*(?:remote-cert-tls|remote-cert-eku|remote-cert-ku|tls-remote)(?:[ \\t]+[^\\r\\n]*)?[ \\t\\r]*$",
+        options = setOf(RegexOption.IGNORE_CASE, RegexOption.MULTILINE),
+    )
+
+    /**
+     * `peer-fingerprint` pins the server certificate directly; no CA check is
+     * involved. Both the one-line form and the `<peer-fingerprint>` inline block
+     * (multiple fingerprints, one per line) are supported by Core 3.9.
+     */
+    private val PEER_FINGERPRINT_DIRECTIVE = Regex(
+        pattern = "^(?![ \\t]*[#;])[ \\t]*(?:peer-fingerprint(?:[ \\t]+[^\\r\\n]*)?|<peer-fingerprint>)[ \\t\\r]*$",
+        options = setOf(RegexOption.IGNORE_CASE, RegexOption.MULTILINE),
+    )
+
+    /** A real `ca` directive or `<ca>` block opener. */
+    private val CA_DIRECTIVE = Regex(
+        pattern = "^(?![ \\t]*[#;])[ \\t]*(?:ca[ \\t]+[^\\r\\n]+|<ca>)[ \\t\\r]*$",
+        options = setOf(RegexOption.IGNORE_CASE, RegexOption.MULTILINE),
+    )
+
+    /**
+     * Returns [config] with `remote-cert-tls server` appended when the profile
+     * uses a CA but does not already constrain the server certificate usage.
+     *
+     * Without this directive a certificate signed by the configured CA is
+     * accepted even if it is a client certificate, which is a known
+     * server-impersonation risk. Profiles that use `peer-fingerprint` or an
+     * explicit `remote-cert-*`/`tls-remote` policy are left untouched.
+     */
+    fun withServerCertificateUsage(config: String): String {
+        if (SERVER_CERTIFICATE_DIRECTIVE.containsMatchIn(config)) return config
+        if (PEER_FINGERPRINT_DIRECTIVE.containsMatchIn(config)) return config
+        if (!CA_DIRECTIVE.containsMatchIn(config)) return config
+        val body = config.trimEnd('\n', '\r')
+        return "$body\nremote-cert-tls server\n"
+    }
+
     /** True when the profile declares username/password authentication. */
     fun declaresUserPasswordAuth(config: String): Boolean =
         USER_PASSWORD_AUTH_DIRECTIVE.containsMatchIn(config)

@@ -180,8 +180,8 @@ profiles that need a key passphrase.
 
 ### Compatibility settings
 
-Two `ClientAPI::Config` / import-time compatibility settings keep older provider
-profiles connectable with the pinned 3.9 core:
+Compatibility settings keep older provider profiles connectable with the pinned
+3.9 core:
 
 - `Config.compressionMode = "asym"` (set in `native_bridge.cpp`). Core's default
   is `"no"`, which raises `COMPRESS_ERROR` when a server pushes LZO asymmetric
@@ -195,14 +195,43 @@ profiles connectable with the pinned 3.9 core:
   earlier app versions work after an update. This is profile normalization in
   the app, not a core API; Core still parses and validates the modified profile
   (see `docs/profile-import.md`).
+- Dynamic tls-crypt is only advertised when the TLS backend can export keying
+  material. Core 3.9 advertises `IV_PROTO_DYN_TLS_CRYPT` unconditionally, but
+  the pinned mbedTLS backend returns `false` from
+  `export_keying_material()`. A server would then enable dynamic tls-crypt and
+  the first rekey would abort with `KEY_EXPANSION_ERROR` /
+  `client_connect_unhandled_exception`. The build generates a patched copy of
+  `openvpn/ssl/proto.hpp` at configure time (the submodule commit is unchanged)
+  that gates the advertisement on
+  `SSLLib::SSLAPI::support_key_material_export()`, mirroring the existing
+  `IV_PROTO_TLS_KEY_EXPORT` guard, and rejects a server-pushed
+  `dyn-tls-crypt` flag with a clear `process_server_push_error` when the
+  backend cannot export keying material. See ADR-006.
+- For CA-based profiles that do not already specify `remote-cert-*`,
+  `tls-remote`, or `peer-fingerprint` (including the `<peer-fingerprint>`
+  inline block), the app appends `remote-cert-tls server` at import and
+  connect time. This prevents a client certificate signed by the same CA from
+  being accepted as the server. A server certificate that lacks the
+  `serverAuth` extended key usage now fails verification by design: this is a
+  deliberate compatibility trade-off and is called out in the changelog.
 
 ### Events
 
 The app maps actual core event names including `CONNECTING`, `CONNECTED`,
 `RECONNECTING`, `DISCONNECTED`, `AUTH_FAILED`, `DYNAMIC_CHALLENGE`,
-`TUN_SETUP_FAILED`, `TUN_ERROR`, `CONNECTION_TIMEOUT`, and logs. The native
-bridge also emits `PROFILE_REJECTED`, `CREDENTIALS_REJECTED`, and
-`SESSION_FINISHED` based on `OpenVPNClient` return statuses.
+`TUN_SETUP_FAILED`, `TUN_ERROR`, `CONNECTION_TIMEOUT`, `PAUSE`, `RESUME`, and
+logs. The native bridge also emits `PROFILE_REJECTED`, `CREDENTIALS_REJECTED`,
+and `SESSION_FINISHED` based on `OpenVPNClient` return statuses.
+
+`pause_on_connection_timeout()` returns `true` only after this client has
+reached `CONNECTED`. A post-connect timeout then becomes Core's `PAUSE` state
+instead of a fatal `CONNECTION_TIMEOUT`; the service maps `PAUSE`/`RESUME` to
+`RECONNECTING` and asks Core to resume through `OpenVPNClient::resume()` with a
+bounded, backed-off retry (`PauseRetryPolicy`: 5 s initial delay, doubling to
+60 s, at most six attempts per connected session) while the network is online.
+An initial connection timeout still returns `false` and is shown as an error,
+and an exhausted retry budget fails visibly with a "traffic is no longer
+protected" message. See ADR-007.
 
 ## Native dependency build
 
@@ -279,6 +308,17 @@ plus the submodule.
   app sets `compressionMode = "asym"` so providers that push asymmetric
   server-to-client LZO compression still work instead of failing right after
   `CONNECTED` with `COMPRESS_ERROR`; see ADR-005.
+- **Dynamic tls-crypt:** not advertised on the mbedTLS build because the pinned
+  Core 3.9 mbedTLS backend cannot export keying material. Servers fall back to
+  the control-channel protection used for the initial handshake; a server that
+  requires dynamic tls-crypt cannot complete a rekey with this build. See
+  ADR-006.
+- **Paused reconnect gap:** a post-connect connection timeout enters Core's
+  `PAUSE` state, which tears down the old TUN. Android then restores the
+  underlying network, so traffic is not protected until a resume attempt
+  succeeds; the service retries with backoff and a cap, then surfaces an
+  explicit "not protected" error. A fresh TUN is created on resume;
+  `tunPersist` remains disabled by design. See ADR-007.
 - **DCO** is not enabled for Android; packet processing uses the core's TUN
   path.
 - **`tunPersist`** is false; TUN is recreated per connection.

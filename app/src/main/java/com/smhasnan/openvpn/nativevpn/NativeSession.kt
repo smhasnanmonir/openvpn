@@ -55,6 +55,20 @@ class NativeSession(private val callbacks: NativeCallbacks) : AutoCloseable {
         return current != 0L && OpenVpnNative.reconnect(current, seconds)
     }
 
+    /**
+     * Guards the native handle against [close] freeing it between the read and
+     * the JNI call. Only [resume] takes this lock: it is called from the service
+     * retry coroutine, never from a native engine callback, so [close] can hold
+     * it across `destroySession` (which joins the engine worker) without risking
+     * a callback deadlock.
+     */
+    private val resumeCloseLock = Any()
+
+    fun resume(): Boolean = synchronized(resumeCloseLock) {
+        val current = handle.get()
+        current != 0L && OpenVpnNative.resume(current)
+    }
+
     fun disconnect() {
         val current = handle.get()
         if (current != 0L) OpenVpnNative.disconnect(current)
@@ -77,8 +91,10 @@ class NativeSession(private val callbacks: NativeCallbacks) : AutoCloseable {
 
     override fun close() {
         if (closed.compareAndSet(0L, 1L)) {
-            val current = handle.getAndSet(0L)
-            if (current != 0L) OpenVpnNative.destroySession(current)
+            synchronized(resumeCloseLock) {
+                val current = handle.getAndSet(0L)
+                if (current != 0L) OpenVpnNative.destroySession(current)
+            }
         }
     }
 }

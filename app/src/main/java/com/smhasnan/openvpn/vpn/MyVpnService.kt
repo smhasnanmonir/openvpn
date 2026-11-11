@@ -24,10 +24,13 @@ import com.smhasnan.openvpn.config.StoredProfile
 import com.smhasnan.openvpn.nativevpn.NativeCallbacks
 import com.smhasnan.openvpn.nativevpn.NativeEngine
 import com.smhasnan.openvpn.nativevpn.NativeSession
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -89,6 +92,13 @@ class MyVpnService : VpnService() {
 
     // Read from the stats coroutine and engine callbacks without the session lock.
     @Volatile private var session: NativeSession? = null
+    @Volatile private var resumeJob: Job? = null
+    /** Resume attempts since the session last reached CONNECTED. */
+    @Volatile private var resumeAttempts = 0
+    /** Set by the engine log so an unhandled-exception event can be identified as a rekey failure. */
+    @Volatile private var sawKeyingMaterialError = false
+    /** MTU warning is emitted once per connection instead of for every oversized packet. */
+    @Volatile private var mtuWarningLogged = false
     private lateinit var networkMonitor: NetworkMonitor
     private lateinit var powerManager: PowerManager
     private var warnedAboutLegacyIpv6Protection = false
@@ -119,6 +129,16 @@ class MyVpnService : VpnService() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_CONNECT -> {
+                if (destroyed || finishing.get()) {
+                    VpnController.appendLog(
+                        LogLevel.WARN,
+                        "Ignoring connect request while the service is stopping",
+                    )
+                    // connect() uses startForegroundService(); a late tap must not
+                    // leave a started-but-not-foreground service behind.
+                    stopSelfSafely()
+                    return START_NOT_STICKY
+                }
                 val profileId = intent.getStringExtra(EXTRA_PROFILE_ID)
                 if (profileId.isNullOrBlank()) {
                     if (showPreparingForeground("unknown")) failFast("No VPN profile was selected.")
@@ -131,6 +151,16 @@ class MyVpnService : VpnService() {
                 if (showPreparingForeground(profileId)) {
                     beginConnect(profileId)
                 }
+            }
+            // Android starts the VpnService with this action for Always-on VPN
+            // (including after boot and when lockdown restores the tunnel). The
+            // app must connect the persisted selected profile without waiting
+            // for the user to open the UI.
+            VpnService.SERVICE_INTERFACE -> {
+                startFromAlwaysOn()
+                // Ask the system to redeliver a null intent if the process is
+                // killed while the Always-on service is running.
+                return START_STICKY
             }
             ACTION_DISCONNECT -> requestDisconnect(revoked = false)
             ACTION_RECONNECT -> {
@@ -148,7 +178,13 @@ class MyVpnService : VpnService() {
             }
             ACTION_STOP -> stopSelfSafely()
             null -> {
-                // START_NOT_STICKY: never restore a session from a stale process.
+                // A redelivered null intent is only honoured for Always-on VPN;
+                // an ordinary stale session is never restored.
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && isAlwaysOn) {
+                    startFromAlwaysOn()
+                    // Keep the Always-on restart mode sticky across process deaths.
+                    return START_STICKY
+                }
                 stopSelf()
             }
         }
@@ -164,6 +200,7 @@ class MyVpnService : VpnService() {
 
     override fun onDestroy() {
         destroyed = true
+        resumeJob?.cancel()
         serviceScope.cancel()
         networkMonitor.stop()
         val current = synchronized(sessionLock) {
@@ -209,6 +246,43 @@ class MyVpnService : VpnService() {
         }
     }
 
+    /**
+     * Always-on VPN / lockdown starts the service with [VpnService.SERVICE_INTERFACE]
+     * instead of the app's own ACTION_CONNECT. Use the persisted profile
+     * selection and stored credentials so the tunnel comes back after boot or a
+     * process restart without requiring the UI.
+     */
+    private fun startFromAlwaysOn() {
+        if (destroyed || finishing.get()) return
+        if (synchronized(sessionLock) { session != null } || starting.get()) return
+        // Read the persisted selection before refresh() can reconcile it to a
+        // different profile: Always-on must not silently bring up an exit the
+        // user did not choose. A deleted selection is surfaced as an error.
+        val persistedProfileId = appContainer.settings.selectedProfileIdNow()
+        if (!showPreparingForeground(persistedProfileId ?: "always-on")) return
+        serviceScope.launch {
+            try {
+                // The process may have just started; make sure the summary index
+                // is available before resolving the stored profile.
+                appContainer.profiles.refresh()
+                if (destroyed || finishing.get()) return@launch
+                if (persistedProfileId.isNullOrBlank()) {
+                    fail("Always-on VPN is enabled, but no VPN profile is selected. Open the app and choose a profile.")
+                    return@launch
+                }
+                VpnController.appendLog(
+                    LogLevel.INFO,
+                    "Always-on VPN start: connecting the selected profile.",
+                )
+                beginConnect(persistedProfileId)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                fail("Could not restore the Always-on VPN profile: ${e.message ?: e.javaClass.simpleName}")
+            }
+        }
+    }
+
     private fun beginConnect(profileId: String) {
         if (!starting.compareAndSet(false, true)) {
             VpnController.appendLog(LogLevel.WARN, "Ignoring duplicate connect request")
@@ -216,10 +290,14 @@ class MyVpnService : VpnService() {
         }
         serviceScope.launch {
             try {
+                if (destroyed || finishing.get()) return@launch
                 if (synchronized(sessionLock) { session != null }) {
                     VpnController.appendLog(LogLevel.WARN, "A VPN session is already active")
                     return@launch
                 }
+                resumeAttempts = 0
+                sawKeyingMaterialError = false
+                mtuWarningLogged = false
                 val repository = appContainer.profiles
                 val stored: StoredProfile? = repository.get(profileId)
                 if (stored == null) {
@@ -265,11 +343,20 @@ class MyVpnService : VpnService() {
                 // Profiles imported before the compatibility fix still carry a
                 // legacy-only tls-cipher pin; normalize at connect time as well
                 // so an app update fixes existing profiles without re-import.
-                val connectConfig = ProfileImportPolicy.withNegotiableTlsCiphers(stored.config)
-                if (connectConfig != stored.config) {
+                val negotiatedConfig = ProfileImportPolicy.withNegotiableTlsCiphers(stored.config)
+                if (negotiatedConfig != stored.config) {
                     VpnController.appendLog(
                         LogLevel.INFO,
                         "Removed a legacy-only tls-cipher pin for this connection (profile imported before 1.1.2).",
+                    )
+                }
+                // Existing profiles imported before server-certificate hardening
+                // also get remote-cert-tls server without a re-import.
+                val connectConfig = ProfileImportPolicy.withServerCertificateUsage(negotiatedConfig)
+                if (connectConfig != negotiatedConfig) {
+                    VpnController.appendLog(
+                        LogLevel.INFO,
+                        "Enforced remote-cert-tls server for this connection (profile imported before 1.3.0).",
                     )
                 }
 
@@ -291,6 +378,9 @@ class MyVpnService : VpnService() {
                 }
                 VpnController.appendLog(LogLevel.INFO, "Connection request handed to OpenVPN Core")
                 updateNotification()
+            } catch (e: CancellationException) {
+                // A user-initiated disconnect cancels the scope; that is not a failure.
+                throw e
             } catch (e: Exception) {
                 fail("Could not start the VPN: ${e.message ?: e.javaClass.simpleName}")
             } finally {
@@ -390,6 +480,7 @@ class MyVpnService : VpnService() {
 
     private fun requestDisconnect(revoked: Boolean) {
         finishing.set(true)
+        resumeJob?.cancel()
         if (!revoked && VpnController.snapshot.value.state != VpnState.ERROR) {
             VpnController.disconnecting()
         }
@@ -403,6 +494,9 @@ class MyVpnService : VpnService() {
             return
         }
         serviceScope.launch {
+            // Join the retry job before the native session is destroyed: it may
+            // otherwise be inside a JNI resume call when close() frees the handle.
+            resumeJob?.cancelAndJoin()
             runCatching {
                 current.disconnect()
                 current.close()
@@ -416,12 +510,59 @@ class MyVpnService : VpnService() {
         }
     }
 
+    /**
+     * Core pauses a session instead of stopping it when a reconnect attempt
+     * times out after the connection was already established.
+     *
+     * While paused there is no tunnel, so retrying without a bound would leave
+     * the app claiming "Reconnecting" while traffic is unprotected. Retries use
+     * [PauseRetryPolicy] (exponential backoff, capped attempts); when the budget
+     * is exhausted the session fails visibly instead.
+     */
+    private fun onPaused() {
+        if (destroyed || finishing.get()) return
+        if (VpnController.snapshot.value.state == VpnState.DISCONNECTING) return
+        VpnController.appendLog(
+            LogLevel.WARN,
+            "Connection attempt timed out; the tunnel is down and traffic is not protected while retrying.",
+        )
+        resumeJob?.cancel()
+        resumeJob = serviceScope.launch {
+            while (isActive) {
+                // Do not trust the JNI resume() result: core silently ignores a
+                // resume that races a stop, so keep retrying until an observed
+                // RESUME/CONNECTED/failure event cancels this job.
+                delay(PauseRetryPolicy.delayMsForAttempt(resumeAttempts + 1))
+                if (destroyed || finishing.get()) return@launch
+                if (VpnController.snapshot.value.state != VpnState.RECONNECTING) return@launch
+                if (!networkMonitor.isOnline()) continue
+                val active = session ?: return@launch
+                if (PauseRetryPolicy.shouldGiveUp(resumeAttempts)) {
+                    fail(
+                        "The VPN could not reconnect. Traffic is no longer protected; " +
+                            "reconnect or choose another profile.",
+                    )
+                    return@launch
+                }
+                resumeAttempts += 1
+                VpnController.appendLog(
+                    LogLevel.INFO,
+                    "Resuming the VPN session (attempt $resumeAttempts of " +
+                        "${PauseRetryPolicy.MAX_ATTEMPTS})",
+                )
+                active.resume()
+            }
+        }
+    }
+
     private fun onSessionFinished() {
         if (!finishing.compareAndSet(false, true)) return
+        resumeJob?.cancel()
         // Do not join the native worker from its own callback thread. The native
         // worker sends SESSION_FINISHED immediately before returning.
         serviceScope.launch {
             delay(80L)
+            resumeJob?.cancelAndJoin()
             val current = synchronized(sessionLock) {
                 session.also { session = null }
             }
@@ -495,6 +636,13 @@ class MyVpnService : VpnService() {
                 .setSession(config.optString("sessionName", "OpenVPN Client").ifBlank { "OpenVPN Client" })
                 .setConfigureIntent(openAppIntent())
                 .setBlocking(false)
+
+            // Inherit the underlying network's meteredness where the platform
+            // supports it; otherwise the VPN would look unmetered and apps
+            // could ignore the user's data-saver settings.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                runCatching { builder.setMetered(networkMonitor.isMetered()) }
+            }
 
             val mtu = config.optInt("mtu", 0)
             if (mtu in 576..9000) builder.setMtu(mtu)
@@ -643,9 +791,21 @@ class MyVpnService : VpnService() {
 
     private inner class EngineCallbacks : NativeCallbacks {
         override fun onEngineEvent(name: String, info: String, error: Boolean, fatal: Boolean) {
-            VpnController.engineEvent(name, info, error, fatal)
+            if (destroyed) return
+            // A PAUSE that races a user disconnect must not resurrect the
+            // Reconnecting state or re-arm the retry loop during teardown.
+            if (name == "PAUSE" && (finishing.get() || VpnController.snapshot.value.state == VpnState.DISCONNECTING)) {
+                return
+            }
+            // Core reports a rekey key-export failure as an unhandled exception;
+            // the preceding engine log identifies it, so the mapper can explain it.
+            val rekeyHint = name == "SESSION_FINISHED" && error && sawKeyingMaterialError
+            VpnController.engineEvent(name, info, error, fatal, rekeyHint)
             when (name) {
                 "CONNECTED" -> {
+                    resumeJob?.cancel()
+                    resumeAttempts = 0
+                    sawKeyingMaterialError = false
                     val active = session
                     if (active != null) {
                         // Fetch details once here; the stats loop only reads counters.
@@ -657,13 +817,32 @@ class MyVpnService : VpnService() {
                         }
                     }
                 }
-                "SESSION_FINISHED" -> onSessionFinished()
+                "PAUSE" -> onPaused()
+                "RESUME" -> resumeJob?.cancel()
+                "SESSION_FINISHED" -> {
+                    resumeJob?.cancel()
+                    onSessionFinished()
+                }
             }
             updateNotification()
         }
 
         override fun onEngineLog(line: String) {
             VpnController.appendLog(LogLevel.INFO, line)
+            if (line.contains("TLS Keying material export error", ignoreCase = true) ||
+                line.contains("KEY_EXPANSION_ERROR", ignoreCase = true)) {
+                sawKeyingMaterialError = true
+            }
+            if (!mtuWarningLogged &&
+                (line.contains("Message too long", ignoreCase = true) ||
+                    line.contains("EMSGSIZE", ignoreCase = true))
+            ) {
+                mtuWarningLogged = true
+                VpnController.appendLog(
+                    LogLevel.WARN,
+                    "A UDP packet exceeded the path MTU. If this repeats on this network, lower the profile's tun-mtu (for example 1400).",
+                )
+            }
         }
 
         override fun onTunEstablish(configJson: String): Int = establishTun(configJson)

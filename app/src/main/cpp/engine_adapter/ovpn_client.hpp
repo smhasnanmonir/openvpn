@@ -197,6 +197,9 @@ class OvpnClient : public openvpn::ClientAPI::OpenVPNClient {
     EngineCallbacks *callbacks_;
     AndroidTunBuilder tun_builder_;
     std::string dynamic_challenge_cookie_;
+    // Set once this client has reached CONNECTED. A later connection-timeout
+    // is a reconnect attempt, not a failed first connection.
+    bool reached_connected_ = false;
 };
 
 } // namespace monirvpn

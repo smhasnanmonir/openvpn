@@ -80,6 +80,12 @@ class NetworkMonitor(context: Context) {
         return isOnline(connectivityManager.getNetworkCapabilities(network))
     }
 
+    /**
+     * The VPN network should inherit the meteredness of the underlying network
+     * so the system and apps can apply data-saver/background restrictions.
+     */
+    fun isMetered(): Boolean = runCatching { connectivityManager.isActiveNetworkMetered }.getOrDefault(false)
+
     /** Deduplicates against the last published change so collectors stay quiet. */
     private fun publish(change: NetworkChange) {
         val previous = lastPublished

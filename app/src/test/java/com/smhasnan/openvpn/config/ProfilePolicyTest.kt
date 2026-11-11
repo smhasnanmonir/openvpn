@@ -224,3 +224,69 @@ class ProfileTlsCipherPolicyTest {
         assertEquals(1, result.lines().count { it.trim().startsWith("tls-cipher ") })
     }
 }
+
+class ProfileServerCertificatePolicyTest {
+    @Test
+    fun addsRemoteCertTlsServerForCaBasedProfiles() {
+        val config = """
+            client
+            remote example.com 1194
+            <ca>
+            -----BEGIN CERTIFICATE-----
+            MIIB
+            -----END CERTIFICATE-----
+            </ca>
+            auth-user-pass
+        """.trimIndent()
+
+        val result = ProfileImportPolicy.withServerCertificateUsage(config)
+
+        assertTrue(result.contains("remote-cert-tls server"))
+        assertEquals(1, result.lines().count { it.trim() == "remote-cert-tls server" })
+    }
+
+    @Test
+    fun addingServerCertificateUsageIsIdempotent() {
+        val config = "client\n<ca>\nMIIB\n</ca>\n"
+        val once = ProfileImportPolicy.withServerCertificateUsage(config)
+        assertEquals(once, ProfileImportPolicy.withServerCertificateUsage(once))
+    }
+
+    @Test
+    fun keepsAnExistingRemoteCertTlsDirectiveUntouched() {
+        val config = "client\n<ca>\nMIIB\n</ca>\nremote-cert-tls server\n"
+        assertEquals(config, ProfileImportPolicy.withServerCertificateUsage(config))
+    }
+
+    @Test
+    fun keepsExplicitRemoteCertEkuPolicyUntouched() {
+        val config = "client\n<ca>\nMIIB\n</ca>\nremote-cert-eku \"TLS Web Server Authentication\"\n"
+        assertEquals(config, ProfileImportPolicy.withServerCertificateUsage(config))
+    }
+
+    @Test
+    fun keepsPeerFingerprintProfilesUntouched() {
+        val config = "client\npeer-fingerprint AA:BB:CC\nremote example.com 1194\n"
+        assertEquals(config, ProfileImportPolicy.withServerCertificateUsage(config))
+    }
+
+    @Test
+    fun doesNotInventServerUsageWithoutCaOrPin() {
+        val config = "client\nremote example.com 1194\nauth-user-pass\n"
+        assertEquals(config, ProfileImportPolicy.withServerCertificateUsage(config))
+    }
+
+    @Test
+    fun ignoresCommentedRemoteCertTlsLines() {
+        val config = "client\n<ca>\nMIIB\n</ca>\n# remote-cert-tls server\n"
+        val result = ProfileImportPolicy.withServerCertificateUsage(config)
+        assertTrue(result.lines().any { it.trim() == "remote-cert-tls server" })
+    }
+
+    @Test
+    fun keepsInlinePeerFingerprintBlocksUntouched() {
+        val config = "client\n<ca>\nMIIB\n</ca>\n<peer-fingerprint>\n" +
+            "AA:BB:CC\nDD:EE:FF\n</peer-fingerprint>\n"
+        assertEquals(config, ProfileImportPolicy.withServerCertificateUsage(config))
+    }
+}

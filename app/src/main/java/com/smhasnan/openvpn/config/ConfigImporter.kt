@@ -148,10 +148,42 @@ class ConfigImporter(
                 metadata = tlsEval.metadata.copy(clientCertNotRequired = metadata.clientCertNotRequired)
             }
 
+            // Enforce server-certificate usage for CA-based profiles that do not
+            // already constrain it. Without remote-cert-tls server, any
+            // certificate signed by the CA (including a client certificate) can
+            // be accepted as the server.
+            val contentBeforeServerUsage = content
+            val serverUsage = ProfileImportPolicy.withServerCertificateUsage(content)
+            if (serverUsage != content) {
+                val certEval = NativeEngine.evalConfig(serverUsage)
+                if (certEval.error) {
+                    val detail = LogSanitizer.sanitize(certEval.message)
+                    return ImportOutcome.Failure(
+                        document.name,
+                        detail.ifBlank {
+                            "This profile could not be prepared with server-certificate verification. Import a profile that contains its certificate and key or a username/password sign-in."
+                        },
+                    )
+                }
+                VpnController.appendLog(
+                    LogLevel.INFO,
+                    "Profile import: added remote-cert-tls server to require a server certificate.",
+                )
+                content = serverUsage
+                metadata = certEval.metadata.copy(clientCertNotRequired = metadata.clientCertNotRequired)
+            }
+
             val hash = sha256(content)
-            repository.findByHash(hash)?.let { existing ->
-                repository.select(existing.id)
-                return ImportOutcome.Success(document.name, existing.id, alreadyImported = true)
+            // Profiles imported by older builds were hashed before
+            // `remote-cert-tls server` was appended. Check both hashes so an
+            // upgrade re-import is still recognised instead of duplicated.
+            val previousHash =
+                if (serverUsage != contentBeforeServerUsage) sha256(contentBeforeServerUsage) else null
+            val existing = repository.findByHash(hash)
+                ?: if (previousHash != null) repository.findByHash(previousHash) else null
+            existing?.let { already ->
+                repository.select(already.id)
+                return ImportOutcome.Success(document.name, already.id, alreadyImported = true)
             }
 
             val suggested = ImportFilePolicy.suggestedDisplayName(document.name).ifBlank {

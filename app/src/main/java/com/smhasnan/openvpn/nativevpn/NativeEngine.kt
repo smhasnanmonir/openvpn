@@ -96,17 +96,25 @@ object NativeEngine {
         if (json.isNullOrBlank()) return TrafficStats()
         return runCatching {
             val root = JSONObject(json)
+            // Core names TUN counters from the tunnel device's perspective:
+            // TUN_BYTES_OUT is data written to the TUN (server -> client,
+            // download) and TUN_BYTES_IN is data read from it (client ->
+            // server, upload). The transport BYTES_IN/BYTES_OUT counters use
+            // the network socket's perspective, which is the opposite order.
+            // Keep the app's bytesIn/bytesOut meaning download/upload.
             val tunBytesIn = root.optLong("TUN_BYTES_IN", 0L)
             val tunBytesOut = root.optLong("TUN_BYTES_OUT", 0L)
             val tunPacketsIn = root.optLong("TUN_PACKETS_IN", 0L)
             val tunPacketsOut = root.optLong("TUN_PACKETS_OUT", 0L)
             // TUN counters are not populated by every Core 3.9 path. Fall back
-            // to real transport counters rather than showing a fake zero.
+            // to real transport counters rather than showing a fake zero, but
+            // never mix the two directions.
+            val hasTunCounters = tunBytesIn > 0L || tunBytesOut > 0L
             TrafficStats(
-                bytesIn = if (tunBytesIn > 0L) tunBytesIn else root.optLong("BYTES_IN", 0L),
-                bytesOut = if (tunBytesOut > 0L) tunBytesOut else root.optLong("BYTES_OUT", 0L),
-                packetsIn = if (tunPacketsIn > 0L) tunPacketsIn else root.optLong("PACKETS_IN", 0L),
-                packetsOut = if (tunPacketsOut > 0L) tunPacketsOut else root.optLong("PACKETS_OUT", 0L),
+                bytesIn = if (hasTunCounters) tunBytesOut else root.optLong("BYTES_IN", 0L),
+                bytesOut = if (hasTunCounters) tunBytesIn else root.optLong("BYTES_OUT", 0L),
+                packetsIn = if (hasTunCounters) tunPacketsOut else root.optLong("PACKETS_IN", 0L),
+                packetsOut = if (hasTunCounters) tunPacketsIn else root.optLong("PACKETS_OUT", 0L),
             )
         }.getOrDefault(TrafficStats())
     }
