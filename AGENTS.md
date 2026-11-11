@@ -17,9 +17,9 @@
 |---|---|
 | Platform | Android OpenVPN client (Kotlin + Jetpack Compose + `VpnService` + OpenVPN 3 Core 3.9 via JNI) |
 | `main` | `eb532ce` “Merge pull request #5 …”; last release tag `v1.2.0` |
-| Active PR | **security/reliability backlog PR** (#8–#21), branch `feat/backlog-security-reliability` |
+| Active PR | **#22** security/reliability backlog (#8–#21), branch `feat/backlog-security-reliability`; CI “Build, test, lint” **green** (both ABIs, 16 KB gate, SBOM) |
 | PR #5 | **merged** (`eb532ce`); closed #4, #6, #7 |
-| Unit tests | **225 tests / 24 suites / 0 failures** (`:app:testDebugUnitTest`, merge-candidate branch; was 110/16 on `main`): +115 tests, +8 suites |
+| Unit tests | **225 tests / 24 suites / 0 failures** (`:app:testDebugUnitTest`, merge-candidate branch; was 110/16 on `main`): +115 tests, +8 suites. CI run on PR #22 is green. |
 | Lint | **0 errors, 45 warnings** (`:app:lintDebug`, unchanged warning count); `abortOnError=true` |
 | Native | Local `x86_64` build verified: three generated-core-header patches compiled in, LOAD `p_align 0x4000`, RELRO + BIND_NOW, stack canary/FORTIFY symbols. `arm64-v8a` is built and gated in CI only (host has no arm64 deps tree). |
 | 16 KB pages | Fresh debug APK passes `scripts/check-16kb-alignment.sh` (every packaged `.so` LOAD `p_align 0x4000`, `zipalign -c -P 16 4` OK); CI runs the same gate for both ABIs |

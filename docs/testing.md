@@ -578,6 +578,11 @@ in `docs/security/leak-test-matrix.md`.
   `zipalign -c -P 16 4` OK).
 - `arm64-v8a` is built and gated by CI only: this host has no arm64 native-deps
   tree, so the local native evidence above is x86_64.
+- GitHub Actions on PR #22 (head `3b8db92`): **“Build, test, lint” PASS** —
+  both-ABI native builds, unit tests, lint, debug + instrumentation APK, the
+  packaged-APK 16 KB gate (4 packaged `.so` files across `arm64-v8a` and
+  `x86_64`, every LOAD `p_align=0x4000`, `zipalign -P 16` OK), and SBOM
+  generation/upload. The release job is skipped for non-tag refs as designed.
 
 **Locally verified for this documentation/CI change (docs-ci):**
 
