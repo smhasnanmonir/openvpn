@@ -119,12 +119,17 @@ find_readelf() {
     done < <(find "$sdk/ndk" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort -V)
   fi
   for dir in "${dirs[@]}"; do
-    candidate="$(find "$dir/toolchains/llvm/prebuilt" -mindepth 3 -maxdepth 3 \
-      -type f -name 'llvm-readelf*' 2>/dev/null | head -n 1 || true)"
-    if [[ -n "$candidate" && -x "$candidate" ]]; then
-      printf '%s\n' "$candidate"
-      return 0
-    fi
+    # Glob the bin directories instead of using `find -type f`: in the Linux NDK
+    # packaging `llvm-readelf` is commonly a symlink (to llvm-readobj), which a
+    # `-type f` filter would silently skip. Testing executability follows symlinks
+    # on all platforms.
+    local candidate
+    for candidate in "$dir"/toolchains/llvm/prebuilt/*/bin/llvm-readelf*; do
+      if [[ -x "$candidate" ]]; then
+        printf '%s\n' "$candidate"
+        return 0
+      fi
+    done
   done
   if command -v llvm-readelf >/dev/null 2>&1; then
     command -v llvm-readelf
@@ -135,7 +140,8 @@ find_readelf() {
 
 READELF="$(find_readelf || true)"
 if [[ -z "$READELF" ]]; then
-  err "llvm-readelf not found. Set ANDROID_NDK_HOME (e.g. \$ANDROID_SDK_ROOT/ndk/$NDK_VERSION) or install the NDK."
+  err "llvm-readelf not found. Searched NDK locations: ${dirs[*]:-<none>}."
+  err "Set ANDROID_NDK_HOME (e.g. \$ANDROID_SDK_ROOT/ndk/$NDK_VERSION) or install the NDK."
   exit 2
 fi
 log "Using readelf: $READELF"
