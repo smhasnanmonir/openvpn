@@ -2,6 +2,55 @@
 
 All notable changes to this project are documented here.
 
+## [1.5.0] - 2026-11-11
+
+### Build and toolchain
+
+- **Coordinated Android toolchain upgrade.** AGP 8.7.3 → 9.5.1, Gradle wrapper
+  8.11.1 → 9.9.1, Kotlin 2.0.21 → 2.4.21, compileSdk 35 → 37 (`targetSdk` and
+  `minSdk` are unchanged at 35 / 26). AGP 9 cannot run on Gradle 8 and requires
+  Kotlin ≥ 2.2.10, so the upgrades only work as one unit — that is why the four
+  Dependabot PRs could not be merged individually, and why CI had to be fixed
+  first.
+- **AGP 9 built-in Kotlin.** `org.jetbrains.kotlin.android` is no longer applied
+  (it is incompatible with AGP 9); the Compose compiler plugin remains and
+  selects Kotlin 2.4.21 for the built-in Kotlin compiler.
+- **Gradle 9.9.1, not 9.9.0.** 9.9.1 contains the fix for the critical issue
+  where version-catalog values could run as code in generated accessors
+  (introduced in Gradle 9.3); this project uses a version catalog.
+- **CI now runs the project wrapper.** Both workflows use `./gradlew` with
+  `setup-gradle gradle-version: wrapper` and fail if the wrapper distribution
+  and `./gradlew --version` disagree, so wrapper bumps are really tested.
+  Previously CI ran a preinstalled Gradle, which is why the Gradle 9 bump
+  looked green while a local `./gradlew` build would have broken.
+- **CI SDK/runner fixes.** Installs `platforms;android-37.0` plus Build Tools
+  36.0.0 and 37.0.0; drops `:app:testReleaseUnitTest` (AGP 9 enables the
+  unit-test component only for the tested build type by default); sets
+  `JAVA_OPTS=-Djava.net.preferIPv4Stack=true` so the wrapper can bootstrap on
+  runners without an IPv6 route.
+
+### Dependencies
+
+- Android Gradle Plugin 9.5.1, Gradle wrapper 9.9.1, Kotlin 2.4.21.
+- Compose BOM 2026.09.00 (Compose UI 1.12.1, Material3 1.4.0).
+- androidx.core 1.19.1 (the `core-ktx` artifact is an empty compatibility shim
+  since core 1.19.0), kotlinx-coroutines 1.11.0, androidx.fragment 1.9.1.
+- Compose 1.12 adds the transitively packaged `libandroidx.graphics.path.so`,
+  which passes the same 16 KB alignment gate as `libnativevpn.so`.
+- `.github/release.yml` excludes `dependabot[bot]` from auto-generated release
+  notes.
+
+### Compatibility notes
+
+- No app behavior, security policy or profile-format change. Certificate
+  verification, DNS fail-closed, compression/cipher policy, split tunneling and
+  the rest of the v1.4.0 security work are unchanged.
+- The Compose/Material3 upgrade may change minor visuals; unit, lint, native,
+  instrumentation-test-APK and R8 release gates all pass.
+- Kotlin 2.4.21's official support matrix lists Gradle ≤ 9.7.0 / AGP ≤ 9.3.1;
+  AGP 9.5.1 + Gradle 9.9.1 is outside that window but builds and passes every
+  gate (recorded as a residual risk in `docs/testing.md`).
+
 ## [1.4.0] - 2026-11-11
 
 ### Security

@@ -4,10 +4,11 @@
 > what the product is, what has already been built, what is in flight, what is
 > left, and how to verify work. Keep it up to date when you change the project.
 >
-> **Status snapshot: 2026-11-11 ~16:45 Asia/Dhaka (release v1.4.0 published).**
-> PR #22 merged (`2c3ac3b`), tag `v1.4.0` released and its APK/SBOM verified;
-> `main` also has `e9ba67d`, a workflow-only fix for the security job's SBOM
-> placeholder version. Local gates and the live tunnel verification are green;
+> **Status snapshot: 2026-11-11 ~19:05 Asia/Dhaka (release v1.5.0 published).**
+> Tag **`v1.5.0`** is released from `main` (AGP 9.5.1 / Gradle 9.9.1 / Kotlin
+> 2.4.21 / compileSdk 37 / Compose BOM 2026.09.00); v1.4.0 remains the previous
+> release. Local gates are green; the v1.4.0 live-tunnel verification described
+> below was not re-run for v1.5.0 (there is no app-code change).
 > remaining work is device/store/pen-test (see §8). Do not trust this snapshot
 > blindly: re-run the verification commands and check GitHub before acting
 > (see §12). Keep it current at merge/release time.
@@ -19,15 +20,16 @@
 | Item | Value |
 |---|---|
 | Platform | Android OpenVPN client (Kotlin + Jetpack Compose + `VpnService` + OpenVPN 3 Core 3.9 via JNI) |
-| `main` | `e9ba67d` (release merge `2c3ac3b` + workflow-only SBOM placeholder fix); last release tag **`v1.4.0`** (versionCode 57, APK + SBOM published and verified) |
-| Active PR | **#22** (backlog security/reliability + release review fixes) — **merged** into `main`; CI green on the PR, merge, tag and post-merge commits |
+| Toolchain | AGP 9.5.1, Gradle wrapper 9.9.1, Kotlin 2.4.21 (AGP built-in Kotlin), compileSdk 37 / targetSdk 35 / minSdk 26, JDK 17, NDK 27.2.12479018, CMake 3.22.1 |
+| `main` | release commit of tag **`v1.5.0`** (resolve with `git rev-parse v1.5.0^{commit}`); previous release **`v1.4.0`** (versionCode 57). v1.5.0 is the toolchain/dependency/CI upgrade; its versionCode comes from the CI run number (> 57) |
+| Active PR | none; v1.5.0 is released, the remaining work is the device/store/pen-test list in section 8 |
 | PR #5 | **merged** (`eb532ce`); closed #4, #6, #7 |
-| Unit tests | **238 tests / 24 suites / 0 failures** (incremental `:app:testDebugUnitTest`; was 110/16 on `main` before the backlog, 225/24 before the review fixes). Instrumentation: **9 tests / 9 passed on emulator API 36.1** (`:app:connectedDebugAndroidTest`). |
-| Lint | **0 errors, 45 warnings** (`:app:lintDebug`, unchanged warning count); `abortOnError=true` |
+| Unit tests | **238 tests / 24 suites / 0 failures** on v1.5.0 (`:app:testDebugUnitTest`, unchanged from v1.4.0). Instrumentation: **9 tests / 9 passed on emulator API 36.1** for v1.4.0; not re-run for v1.5.0 (no app-code change). |
+| Lint | **0 errors, 22 warnings** (`:app:lintDebug` and `:app:lintRelease`; down from 45 with AGP 9 lint plus the v1.5.0 dependency set); `abortOnError=true` |
 | Native | Local `x86_64` build verified: three generated-core-header patches compiled in, LOAD `p_align 0x4000`, RELRO + BIND_NOW, stack canary/FORTIFY symbols. `arm64-v8a` is built and gated in CI only (host has no arm64 deps tree). |
-| 16 KB pages | Debug **and signed release** APKs pass `scripts/check-16kb-alignment.sh` (every packaged `.so` LOAD `p_align 0x4000`, `zipalign -c -P 16 4` OK) in CI for both ABIs. A `google_apis_ps16k` API 36 image was installed and boots with `getconf PAGE_SIZE` = 16384, but SurfaceFlinger (`RegionSampling` SIGABRT) crash-loops on this host, so the app could not be launched on 16 KB here. 16 KB **app launch** is still unverified; a real 16 KB device or different emulator host is needed. |
+| 16 KB pages | Debug **and signed release** APKs pass `scripts/check-16kb-alignment.sh` (every packaged `.so` LOAD `p_align 0x4000`, `zipalign -c -P 16 4` OK) in CI for both ABIs (including the new Compose 1.12 `libandroidx.graphics.path.so`). A `google_apis_ps16k` API 36 image was installed and boots with `getconf PAGE_SIZE` = 16384, but SurfaceFlinger (`RegionSampling` SIGABRT) crash-loops on this host, so the app could not be launched on 16 KB here. 16 KB **app launch** is still unverified; a real 16 KB device or different emulator host is needed. |
 | Live tunnel | Verified against a local OpenVPN 2.4 net30 server on emulator API 36.1 with **both the debug APK and the signed/minified v1.4.0 release APK** (import + connect + `ping` 3/3): full tunnel, AEAD-only (AES-256-GCM), strict compression refusal, compatibility LZO-ASYM, DNS fail-closed. Details in `docs/testing.md` ("Live tunnel verification"). |
-| Supply chain | Release SBOM (181 components) scanned with pinned `osv-scanner v2.7.1` → no issues; gitleaks v8.28.0 with `.gitleaks.toml` → no leaks. Both jobs are **green in the post-merge `security.yml` run** on `main`. |
+| Supply chain | The v1.5.0 release SBOM (223 components locally; CI artifact authoritative) is attached to the GitHub Release and scanned with pinned `osv-scanner v2.7.1` → no issues; gitleaks v8.28.0 with `.gitleaks.toml` → no leaks. Both jobs are **green in the post-merge `security.yml` run** on `main`. |
 | Open issues | #8/#9/#10/#11/#12/#13/#14/#17/#18/#19 closed by PR #22; #15 (publish/Play submission), #16 (backend), #20 (iOS), #21 (physical-device leak matrix/pen test) remain open with the repo deliverables documented |
 | Next action | Device work only: run the physical-device leak-test matrix (`docs/security/leak-test-matrix.md`), verify a 16 KB device/emulator launch, then publish the privacy policy + Play declarations and commission the independent penetration test. |
 
@@ -105,7 +107,7 @@ Key facts:
 - `minSdk=26`, `compileSdk=37`, `targetSdk=35`, version from `APP_VERSION` env
   (default 1.0.0 locally).
 - ABIs default `arm64-v8a,x86_64`; override with `-Pabis=...`.
-- NDK `27.2.12479018`, CMake `3.22.1`, Gradle wrapper `9.6.0`, AGP `9.4.1`,
+- NDK `27.2.12479018`, CMake `3.22.1`, Gradle wrapper `9.9.1`, AGP `9.5.1`,
   Kotlin `2.4.21` (AGP 9 built-in Kotlin; the `org.jetbrains.kotlin.android`
   plugin is no longer applied), JVM 17.
 - OpenVPN Core is a **pinned submodule** `third_party/openvpn3` @
@@ -126,7 +128,7 @@ Key facts:
 | Android SDK | `ANDROID_HOME=C:\Users\monir\AppData\Local\Android\Sdk` |
 | NDK | `<SDK>\ndk\27.2.12479018` |
 | CMake | `<SDK>\cmake\3.22.1` |
-| Gradle | wrapper `.\gradlew.bat` (9.6.0); user Gradle cache is warm |
+| Gradle | wrapper `.\gradlew.bat` (9.9.1); user Gradle cache is warm |
 | Submodule | `git submodule update --init --recursive` (needed for native builds) |
 | Native deps | CMake needs `app/src/main/cpp/deps/<abi>/lib/libmbedtls.a`. On this host **x86_64 may be prebuilt; arm64 may need `scripts/build-native-deps.sh arm64-v8a`**. CI builds both. |
 
@@ -208,9 +210,9 @@ Notes/gotchas:
 ### 3.5 CI
 
 `.github/workflows/android.yml`, job “Build, test, lint” on every push/PR:
-checkout with submodules, JDK 17, the **project Gradle wrapper** (9.6.0; CI
-fails if the wrapper distribution and `./gradlew` disagree), install SDK 37 /
-NDK / CMake, build
+checkout with submodules, JDK 17, the **project Gradle wrapper** (9.9.1; CI
+fails if the wrapper distribution and `./gradlew` disagree), install SDK platform
+37.0 (Build Tools 36.0.0 + 37.0.0) / NDK / CMake, build
 native deps for both ABIs, then:
 
 ```
@@ -404,6 +406,11 @@ and `docs/security/leak-test-matrix.md` §7.
   APK (both ABIs, 16 KB aligned, v1.3.0 key) and the SBOM are on the GitHub
   Release. `main` then got `e9ba67d`, a workflow-only fix for the security
   job's SBOM placeholder versionCode.
+- **v1.5.0** (tag `v1.5.0`): coordinated toolchain upgrade (AGP 9.5.1, Gradle
+  wrapper 9.9.1, Kotlin 2.4.21 via AGP built-in Kotlin, compileSdk 37, Compose
+  BOM 2026.09.00, androidx updates), CI runs the project wrapper, and
+  `dependabot[bot]` is excluded from generated release notes. No app-code or
+  security-policy change.
 
 ---
 
@@ -836,8 +843,8 @@ explicitly.
 - Confirm the backlog PR is the active work (`gh pr view`, `gh pr checks`) and
   that #8–#21 are addressed as in §4A.
 - `.\gradlew.bat --no-daemon :app:testDebugUnitTest` — expect **238 tests /
-  24 suites / 0 failures** on the release-1.4.0 candidate (110/16 on `main`).
-  Then `:app:lintDebug` (0 errors, 45 warnings) and `assembleDebug`.
+  24 suites / 0 failures** on the release-1.5.0 candidate (unchanged from
+  v1.4.0). Then `:app:lintDebug` (0 errors, 22 warnings) and `assembleDebug`.
 - `:app:assembleDebugAndroidTest` must compile (it did on the merge candidate).
 - `:app:externalNativeBuildDebug -Pabis=x86_64` must succeed and the generated
   header must contain all three patches (§3.2).

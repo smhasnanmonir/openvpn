@@ -156,7 +156,10 @@ find_zipalign() {
   fi
   if [[ -n "$sdk" && -d "$sdk/build-tools" ]]; then
     local candidate
-    for candidate in "$sdk/build-tools/35.0.0/zipalign" "$sdk/build-tools/35.0.0/zipalign.exe"; do
+    for candidate in \
+      "$sdk/build-tools/37.0.0/zipalign" "$sdk/build-tools/37.0.0/zipalign.exe" \
+      "$sdk/build-tools/36.0.0/zipalign" "$sdk/build-tools/36.0.0/zipalign.exe" \
+      "$sdk/build-tools/35.0.0/zipalign" "$sdk/build-tools/35.0.0/zipalign.exe"; do
       if [[ -x "$candidate" ]]; then
         printf '%s\n' "$candidate"
         return 0
