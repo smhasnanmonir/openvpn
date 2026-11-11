@@ -14,6 +14,10 @@ import java.io.InputStream
 import java.security.MessageDigest
 import java.util.UUID
 
+private const val CA_CHANGE_WARNING =
+    "A profile with this name was imported earlier with a different CA certificate. " +
+        "Verify the new CA before trusting this profile."
+
 /**
  * Imports .ovpn documents selected through the Storage Access Framework.
  *
@@ -173,6 +177,15 @@ class ConfigImporter(
                 metadata = certEval.metadata.copy(clientCertNotRequired = metadata.clientCertNotRequired)
             }
 
+            // Fail closed when the profile carries no server trust anchor (a CA,
+            // a peer-fingerprint pin, or an explicit legacy tls-remote policy).
+            // Without one, OpenVPN cannot authenticate the server at all.
+            when (val trust = ProfileTrustPolicy.validateForImport(content)) {
+                is ImportDecision.Rejected ->
+                    return ImportOutcome.Failure(document.name, trust.message)
+                ImportDecision.Allowed -> Unit
+            }
+
             val hash = sha256(content)
             // Profiles imported by older builds were hashed before
             // `remote-cert-tls server` was appended. Check both hashes so an
@@ -190,6 +203,32 @@ class ConfigImporter(
                 metadata.friendlyName ?: metadata.profileName ?: "Imported profile"
             }.take(ProfileNameValidator.MAX_LENGTH)
             val name = ProfileNameValidator.validate(suggested).getOrElse { "Imported profile" }
+
+            // Non-fatal security notes shown with the success result. The profile
+            // is usable, but the user should know about weak ciphers or a changed
+            // CA before trusting a same-named profile.
+            val warnings = mutableListOf<String>()
+            val legacyCiphers = ProfileSecurityPolicy.legacyCipherFindings(content)
+                .map { it.value.uppercase() }
+                .distinct()
+            if (legacyCiphers.isNotEmpty()) {
+                warnings += "This profile allows non-AEAD data ciphers " +
+                    "(${legacyCiphers.joinToString(", ")}). Switch the cipher policy to the " +
+                    "AEAD-only mode to refuse them."
+            }
+            val newCaFingerprint = ProfileTrustPolicy.caFingerprint(content)
+            if (newCaFingerprint != null) {
+                val sameNamed = repository.profiles.value.filter { it.name == name }
+                for (existingProfile in sameNamed) {
+                    val stored = repository.get(existingProfile.id) ?: continue
+                    val previousFingerprint = ProfileTrustPolicy.caFingerprint(stored.config) ?: continue
+                    if (previousFingerprint != newCaFingerprint) {
+                        warnings += CA_CHANGE_WARNING
+                        break
+                    }
+                }
+            }
+
             val now = System.currentTimeMillis()
             val summary = ProfileSummary(
                 id = UUID.randomUUID().toString(),
@@ -204,7 +243,12 @@ class ConfigImporter(
             repository.add(stored).getOrElse {
                 return ImportOutcome.Failure(document.name, "Could not save the profile securely.")
             }
-            ImportOutcome.Success(document.name, summary.id, alreadyImported = false)
+            ImportOutcome.Success(
+                document.name,
+                summary.id,
+                alreadyImported = false,
+                warning = warnings.takeIf { it.isNotEmpty() }?.joinToString("\n"),
+            )
         } catch (security: SecurityException) {
             ImportOutcome.Failure(document.name, "Access to the selected file was denied.")
         } catch (io: java.io.IOException) {
