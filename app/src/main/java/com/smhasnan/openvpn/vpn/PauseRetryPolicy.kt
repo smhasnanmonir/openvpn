@@ -1,5 +1,7 @@
 package com.smhasnan.openvpn.vpn
 
+import kotlin.random.Random
+
 /**
  * Bounded retry policy for a session that OpenVPN Core put in its `PAUSE` state
  * after a post-connect connection timeout.
@@ -36,6 +38,23 @@ object PauseRetryPolicy {
             delay = (delay * 2).coerceAtMost(MAX_DELAY_MS)
         }
         return delay
+    }
+
+    /**
+     * Delay before resume attempt [attempt] with full jitter: a uniformly random
+     * value in `[base / 2, base]`, where `base = delayMsForAttempt(attempt)`.
+     *
+     * The deterministic backoff alone makes several devices/processes retry in
+     * lockstep after a shared outage. Jitter spreads reconnects while keeping a
+     * lower bound, so a device that has just woken up does not thundering-herd
+     * the server. The bound also keeps the retry budget within the same
+     * order-of-magnitude window as the deterministic policy.
+     */
+    fun delayMsWithJitter(attempt: Int, random: Random = Random.Default): Long {
+        val base = delayMsForAttempt(attempt)
+        val lower = base / 2
+        val spread = base - lower
+        return if (spread <= 0L) base else lower + random.nextLong(spread + 1)
     }
 
     /** True once the retry budget is exhausted and the session must fail visibly. */

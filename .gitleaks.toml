@@ -1,0 +1,19 @@
+# gitleaks configuration for the secret-scanning job in
+# .github/workflows/security.yml (referenced through GITLEAKS_CONFIG; the
+# gitleaks-action also auto-detects a repository-root .gitleaks.toml).
+#
+# The built-in rule set stays enabled. Only deliberately committed
+# instrumentation-test fixtures are allowlisted, never production code.
+
+title = "openvpn-client-android secret scanning"
+
+[extend]
+useDefault = true
+
+# Global allowlist in the gitleaks v8 "legacy" form, which v8 still accepts and
+# which works across the gitleaks versions bundled by gitleaks-action.
+[allowlist]
+description = "Test-only OpenVPN profile with a throwaway, self-contained CA/client key generated for instrumentation tests; it is not used by the production app and cannot protect real traffic (see app/src/androidTest/assets/README.md)."
+paths = [
+  '''^app/src/androidTest/assets/test-profile\.ovpn$''',
+]

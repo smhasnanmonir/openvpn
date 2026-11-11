@@ -75,6 +75,12 @@ sealed interface ImportOutcome {
         override val fileName: String,
         val profileId: String,
         val alreadyImported: Boolean,
+        /**
+         * Non-fatal security/compatibility note shown after a successful import
+         * (legacy ciphers offered by the profile, or a same-named profile that
+         * was imported earlier with a different CA certificate).
+         */
+        val warning: String? = null,
     ) : ImportOutcome
 
     data class Failure(

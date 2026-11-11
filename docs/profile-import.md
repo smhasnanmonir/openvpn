@@ -23,7 +23,14 @@
 9. If the profile pins only legacy TLS 1.2 cipher suites in a `tls-cipher`
    directive, that pin is dropped so the TLS library can negotiate modern
    defaults (see below), and the profile is validated again.
-10. The result is encrypted and saved. The temp directory is recursively deleted.
+10. The server-trust policy is applied: the profile must carry a CA, a
+    `peer-fingerprint`, or a legacy `tls-remote` directive. A profile with no
+    trust material is rejected with an actionable message; a same-name
+    re-import whose CA material differs returns an explicit CA-change warning.
+    Data-cipher directives that pin only non-AEAD ciphers are surfaced as an
+    import warning (the `AEAD-only` policy will refuse them at connect time).
+    See "Server trust policy" and ADR-009.
+11. The result is encrypted and saved. The temp directory is recursively deleted.
 
 Nothing is copied into shared storage and the raw profile is never logged.
 
@@ -104,6 +111,30 @@ so updating the app fixes existing profiles without re-importing them. This only
 drops an obsolete TLS 1.2 cipher selection; TLS 1.3 cipher suites are negotiated
 by the TLS library regardless, and certificate verification is never weakened.
 
+## Server trust policy
+
+OpenVPN Core verifies what the profile tells it to verify. A profile with no
+server-trust anchor cannot be validated meaningfully, so the importer enforces a
+strict policy (`ProfileTrustPolicy`, ADR-009):
+
+- accepted trust anchors: a CA (`ca` directive, inline `<ca>`, or a merged
+  external CA reference), a `peer-fingerprint` (line or inline
+  `<peer-fingerprint>` block), or the legacy `tls-remote` directive;
+- a profile with none of these is rejected at import with a message explaining
+  that a CA or peer fingerprint is required and how to re-export the profile
+  from the provider;
+- the same policy is re-checked at connect time, so profiles stored by older
+  app versions are refused instead of silently used;
+- when a profile with the same display name is re-imported and its CA material
+  differs, the import succeeds but returns an explicit CA-change warning shown
+  in the UI (a silent trust-anchor replacement is a downgrade path);
+- `remote-cert-tls server` is still appended for CA-based profiles without an
+  explicit server-usage policy (PR #5); the strict policy is additive.
+
+Revocation is not a client feature: the pinned core/client has no CRL/OCSP
+integration, and revocation is enforced by the VPN server/PKI (ADR-009). The
+app does not claim to verify revocation.
+
 ## Validation and rejection
 
 Examples of rejected input:
@@ -112,6 +143,9 @@ Examples of rejected input:
 - An empty, malformed, or oversized profile.
 - A missing external certificate/key.
 - A profile rejected by `eval_config`.
+- A profile with **no server-trust material** (no CA, no `peer-fingerprint`, no
+  legacy `tls-remote`) — rejected by the strict trust policy with an actionable
+  message (ADR-009).
 - A profile that explicitly requests external PKI (`EXTERNAL_PKI` or
   `setenv opt EXTERNAL_PKI`).
 - A certificate-less profile with no username/password sign-in.
@@ -122,6 +156,18 @@ Examples of rejected input:
 
 Duplicate content (SHA-256 of the merged profile) is detected. The existing
 profile is selected instead of creating a second copy.
+
+## Cipher/compression warnings and policy at connect
+
+Import also surfaces a warning when the profile's `cipher`/`data-ciphers`/
+`data-ciphers-fallback` directives contain non-AEAD entries (for example
+BF-CBC/AES-CBC), because the opt-in `AEAD-only` policy will refuse such a
+profile at connect time. This is a warning, not a rejection: the default
+`Profile` cipher policy still honours the profile for provider compatibility. No
+compression policy is applied at import; the user's `Compatibility`/`Strict`
+choice is evaluated at connect time (ADR-010). Import never silently removes
+cipher directives except the legacy-only `tls-cipher` normalization described
+above.
 
 ## Storage and naming
 

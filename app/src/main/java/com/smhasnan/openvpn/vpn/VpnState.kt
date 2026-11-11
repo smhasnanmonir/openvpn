@@ -66,6 +66,13 @@ data class VpnSnapshot(
     val challenge: String? = null,
     val details: ConnectionDetails = ConnectionDetails(),
     val stats: TrafficStats = TrafficStats(),
+    /**
+     * True while the tunnel has been deliberately paused so the user can
+     * complete a captive-portal sign-in on the underlying network. While true
+     * the tunnel is down and traffic is unprotected; the UI must never render
+     * the session as protected.
+     */
+    val pausedForPortal: Boolean = false,
 ) {
     val isBusy: Boolean
         get() = state == VpnState.PREPARING || state == VpnState.CONNECTING ||

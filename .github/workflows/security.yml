@@ -1,0 +1,106 @@
+name: Security scans
+
+# Supply-chain and secret scans. This workflow is NOT a required PR check:
+# it runs on pushes to main, on a schedule, and on manual dispatch so that
+# advisory/secret findings are found without blocking every pull request.
+# The build/PR gate stays in android.yml (tests, lint, 16 KB alignment, SBOM).
+on:
+  push:
+    branches: ["main"]
+  schedule:
+    # Weekly on Monday 05:17 UTC (off-peak, non-round time).
+    - cron: "17 5 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  sbom-advisories:
+    name: SBOM advisory scan (osv-scanner)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          # scripts/generate-sbom.sh reads the OpenVPN Core commit from the
+          # third_party/openvpn3 gitlink and requires the submodule to be
+          # checked out at the release pin, so the scan fails closed on drift.
+          submodules: recursive
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.11.1"
+
+      - name: Install pinned Android SDK packages
+        timeout-minutes: 20
+        run: |
+          set +o pipefail
+          SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          SDKMANAGER="${SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager"
+          if [[ ! -x "$SDKMANAGER" ]]; then
+            SDKMANAGER="$(command -v sdkmanager)"
+          fi
+          yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
+          yes | "$SDKMANAGER" --install "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Generate SBOM (CycloneDX)
+        env:
+          APP_VERSION: "0.0.0-scan"
+          APP_VERSION_CODE: "0"
+        run: |
+          export ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          bash scripts/generate-sbom.sh --output build/sbom/sbom.cdx.json
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-security-scan
+          path: build/sbom/sbom.cdx.json
+          if-no-files-found: error
+
+      - name: Scan SBOM with OSV-Scanner
+        # Run the pinned official scanner image directly. The osv-scanner-action
+        # repository explicitly documents its action as "not intended to be used
+        # directly"; its reusable workflows set --format/--output themselves and
+        # expect SARIF/code-scanning permissions, which this read-only workflow
+        # does not grant. The generated CycloneDX SBOM is the only artifact that
+        # covers the Gradle runtime classpath and the pinned native dependencies,
+        # so it is scanned as an explicit lockfile.
+        run: |
+          docker run --rm \
+            -v "$PWD:/src" \
+            -w /src \
+            ghcr.io/google/osv-scanner:v2.7.1 \
+            scan source -L /src/build/sbom/sbom.cdx.json --format=table
+
+  secret-scan:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@v3.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Repository config: keeps the default rules but allowlists the
+          # documented instrumentation-test fixture with a justification.
+          GITLEAKS_CONFIG: .gitleaks.toml

@@ -30,11 +30,27 @@ object EngineEventMapper {
     private const val NETWORK_UNAVAILABLE_MESSAGE =
         "No usable network is available. Check Wi-Fi or mobile data and try again."
 
+    private const val REJECTED_PUSHED_OPTION_MESSAGE =
+        "The server pushed an option this app's security policy refuses (for example a non-AEAD " +
+            "cipher, or compression in strict mode). The connection was stopped; review the " +
+            "cipher/compression policy in Settings, or ask your VPN provider for a compatible " +
+            "profile."
+
     data class Mapped(
         val state: VpnState?,
         val message: String? = null,
         val clearError: Boolean = false,
         val requiresChallenge: Boolean = false,
+    )
+
+    /** Events that end (or fail) the TUN setup and should carry the app's own reason. */
+    private val TUN_TERMINAL_EVENTS = setOf(
+        "SESSION_FINISHED",
+        "TUN_SETUP_FAILED",
+        "TUN_ERROR",
+        "TUN_IFACE_CREATE",
+        "TUN_IFACE_DISABLED",
+        "CLIENT_HALT",
     )
 
     /**
@@ -43,6 +59,9 @@ object EngineEventMapper {
      *   the generic `client_connect_unhandled_exception` text, so the event
      *   payload alone cannot distinguish it from other unhandled exceptions;
      *   the caller supplies the hint from the preceding engine log line.
+     * @param tunHint non-null when the app refused to build the TUN (DNS leak
+     *   policy, split-tunnel policy, Android builder failure). Core's own event
+     *   text for this case is generic, so the app's reason takes precedence.
      */
     fun map(
         name: String,
@@ -50,6 +69,19 @@ object EngineEventMapper {
         error: Boolean,
         fatal: Boolean,
         rekeyHint: Boolean = false,
+        tunHint: String? = null,
+    ): Mapped = when {
+        tunHint != null && error && name in TUN_TERMINAL_EVENTS ->
+            Mapped(VpnState.ERROR, tunHint)
+        else -> mapEvent(name, info, error, fatal, rekeyHint)
+    }
+
+    private fun mapEvent(
+        name: String,
+        info: String,
+        error: Boolean,
+        fatal: Boolean,
+        rekeyHint: Boolean,
     ): Mapped = when (name) {
         "CONNECTING" -> Mapped(VpnState.CONNECTING, clearError = true)
         "CONNECTED" -> Mapped(VpnState.CONNECTED, clearError = true)
@@ -107,6 +139,15 @@ object EngineEventMapper {
             VpnState.ERROR,
             info.ifBlank { "The configured proxy requires credentials." },
         )
+        // Core restarts internally on a server RESTART. A "rejected pushed option"
+        // restart is different: the app's pull-filter policy refused an option the
+        // server requires, so Core would restart forever. Fail visibly instead of
+        // leaving the UI reconnecting indefinitely.
+        "CLIENT_RESTART" -> if (info.contains("rejected pushed option", ignoreCase = true)) {
+            Mapped(VpnState.ERROR, REJECTED_PUSHED_OPTION_MESSAGE)
+        } else {
+            Mapped(null, info.ifBlank { "The server requested a session restart." })
+        }
         "PROFILE_REJECTED", "CREDENTIALS_REJECTED", "TUN_SETUP_FAILED", "TUN_ERROR",
         "TUN_IFACE_CREATE", "TUN_IFACE_DISABLED", "ENGINE_ERROR", "CLIENT_HALT",
         "CLIENT_SETUP", "EPKI_ERROR", "EPKI_INVALID_ALIAS",

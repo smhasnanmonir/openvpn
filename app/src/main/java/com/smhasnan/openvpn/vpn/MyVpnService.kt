@@ -20,10 +20,15 @@ import com.smhasnan.openvpn.MainActivity
 import com.smhasnan.openvpn.appContainer
 import com.smhasnan.openvpn.config.ProfileCredentials
 import com.smhasnan.openvpn.config.ProfileImportPolicy
+import com.smhasnan.openvpn.config.ProfileSecurityPolicy
+import com.smhasnan.openvpn.config.ProfileTrustPolicy
 import com.smhasnan.openvpn.config.StoredProfile
 import com.smhasnan.openvpn.nativevpn.NativeCallbacks
 import com.smhasnan.openvpn.nativevpn.NativeEngine
 import com.smhasnan.openvpn.nativevpn.NativeSession
+import com.smhasnan.openvpn.settings.CipherPolicy
+import com.smhasnan.openvpn.settings.CompressionPolicy
+import com.smhasnan.openvpn.settings.SplitTunnelMode
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -56,6 +61,14 @@ class MyVpnService : VpnService() {
         const val ACTION_RESPOND_CHALLENGE = "com.smhasnan.openvpn.action.RESPOND_CHALLENGE"
         const val ACTION_STOP = "com.smhasnan.openvpn.action.STOP"
 
+        /**
+         * Temporarily closes the tunnel so the user can sign in to a captive
+         * portal. The persisted desired-connected profile is kept, so the UI can
+         * offer an explicit resume; the VPN is never reported as protecting
+         * traffic while paused.
+         */
+        const val ACTION_PAUSE_FOR_PORTAL = "com.smhasnan.openvpn.action.PAUSE_FOR_PORTAL"
+
         const val EXTRA_PROFILE_ID = "profile_id"
         const val EXTRA_CHALLENGE_RESPONSE = "challenge_response"
 
@@ -72,6 +85,12 @@ class MyVpnService : VpnService() {
 
         fun reconnect(context: Context) {
             context.startService(Intent(context, MyVpnService::class.java).setAction(ACTION_RECONNECT))
+        }
+
+        fun pauseForPortal(context: Context) {
+            context.startService(
+                Intent(context, MyVpnService::class.java).setAction(ACTION_PAUSE_FOR_PORTAL),
+            )
         }
 
         fun respondToChallenge(context: Context, response: String) {
@@ -99,6 +118,14 @@ class MyVpnService : VpnService() {
     @Volatile private var sawKeyingMaterialError = false
     /** MTU warning is emitted once per connection instead of for every oversized packet. */
     @Volatile private var mtuWarningLogged = false
+    /**
+     * Reason the app refused to build the TUN (fail-closed DNS or split-tunnel
+     * policy). Core's terminal event text for this case is generic, so the
+     * service hands the reason to [VpnController.engineEvent] as a hint.
+     */
+    @Volatile private var tunError: String? = null
+    /** Legacy cipher findings are reported once per connection, not per reconnect. */
+    @Volatile private var legacyCipherWarningLogged = false
     private lateinit var networkMonitor: NetworkMonitor
     private lateinit var powerManager: PowerManager
     private var warnedAboutLegacyIpv6Protection = false
@@ -146,11 +173,17 @@ class MyVpnService : VpnService() {
                 }
                 if (synchronized(sessionLock) { session != null } || starting.get()) {
                     VpnController.appendLog(LogLevel.WARN, "Ignoring duplicate VPN connection request")
-                    return START_NOT_STICKY
+                    // An already-active session must survive a process kill, so the
+                    // service stays sticky instead of degrading the restart mode.
+                    return START_STICKY
                 }
-                if (showPreparingForeground(profileId)) {
-                    beginConnect(profileId)
-                }
+                if (!showPreparingForeground(profileId)) return START_NOT_STICKY
+                beginConnect(profileId, userRequested = true)
+                // A user-requested session is restartable: if the process is
+                // killed, Android redelivers a null intent and the persisted
+                // desired-connected profile is restored (issue #14). The native
+                // session itself is never restored; a new one is created.
+                return START_STICKY
             }
             // Android starts the VpnService with this action for Always-on VPN
             // (including after boot and when lockdown restores the tunnel). The
@@ -162,7 +195,10 @@ class MyVpnService : VpnService() {
                 // killed while the Always-on service is running.
                 return START_STICKY
             }
-            ACTION_DISCONNECT -> requestDisconnect(revoked = false)
+            ACTION_DISCONNECT -> {
+                requestDisconnect(revoked = false)
+                return START_NOT_STICKY
+            }
             ACTION_RECONNECT -> {
                 val current = session
                 if (current == null) {
@@ -171,21 +207,53 @@ class MyVpnService : VpnService() {
                     VpnController.appendLog(LogLevel.INFO, "Manual reconnect requested")
                     current.reconnect(0)
                 }
+                return START_NOT_STICKY
             }
             ACTION_RESPOND_CHALLENGE -> {
                 val response = intent.getStringExtra(EXTRA_CHALLENGE_RESPONSE).orEmpty()
                 respondToChallenge(response)
+                return START_NOT_STICKY
             }
-            ACTION_STOP -> stopSelfSafely()
+            ACTION_STOP -> {
+                // ACTION_STOP ends the persistent connect intent; the service
+                // must not restore a session after it.
+                clearDesiredConnection()
+                stopSelfSafely()
+                return START_NOT_STICKY
+            }
+            ACTION_PAUSE_FOR_PORTAL -> {
+                if (destroyed || finishing.get()) {
+                    stopSelfSafely()
+                    return START_NOT_STICKY
+                }
+                // The persisted desired-connected profile is deliberately kept:
+                // the portal flow is a pause, not a user disconnect. The paused
+                // flag survives disconnecting()/disconnected() so the UI can offer
+                // an explicit resume and never reports "protected" while paused.
+                VpnController.appendLog(
+                    LogLevel.WARN,
+                    "VPN paused for captive-portal sign-in; traffic is no longer protected until it is resumed.",
+                )
+                VpnController.pausedForPortal()
+                requestDisconnect(revoked = false, keepDesired = true)
+                return START_NOT_STICKY
+            }
             null -> {
-                // A redelivered null intent is only honoured for Always-on VPN;
-                // an ordinary stale session is never restored.
+                if (destroyed || finishing.get()) {
+                    stopSelf()
+                    return START_NOT_STICKY
+                }
+                // Android redelivers a null intent when it restarts a sticky
+                // service after a process death. Restore only the persisted
+                // intent: Always-on keeps using the system-selected profile;
+                // otherwise the last user-requested profile is restored when it
+                // still exists. A dead native pointer is never restored.
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && isAlwaysOn) {
                     startFromAlwaysOn()
                     // Keep the Always-on restart mode sticky across process deaths.
                     return START_STICKY
                 }
-                stopSelf()
+                return restoreDesiredSession()
             }
         }
         return START_NOT_STICKY
@@ -274,7 +342,7 @@ class MyVpnService : VpnService() {
                     LogLevel.INFO,
                     "Always-on VPN start: connecting the selected profile.",
                 )
-                beginConnect(persistedProfileId)
+                beginConnect(persistedProfileId, userRequested = false)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -283,10 +351,61 @@ class MyVpnService : VpnService() {
         }
     }
 
-    private fun beginConnect(profileId: String) {
+    /**
+     * Restores the last user-requested session after a process death (issue
+     * #14). Only the persisted *intent* is restored: the profile must still
+     * exist, credentials come from encrypted storage, and a brand-new native
+     * session is created by [beginConnect]. A dead native pointer is never
+     * restored.
+     *
+     * @return [START_STICKY] when a restore was started, otherwise
+     *   [START_NOT_STICKY] after stopping the service.
+     */
+    private fun restoreDesiredSession(): Int {
+        val desiredProfileId = appContainer.settings.desiredConnectedProfileIdNow()
+        if (desiredProfileId.isNullOrBlank()) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
+        if (!showPreparingForeground(desiredProfileId)) return START_NOT_STICKY
+        serviceScope.launch {
+            try {
+                // The process may have just started; load the profile index first.
+                appContainer.profiles.refresh()
+                if (destroyed || finishing.get()) return@launch
+                if (appContainer.profiles.get(desiredProfileId) == null) {
+                    VpnController.appendLog(
+                        LogLevel.WARN,
+                        "The last connected profile no longer exists; the VPN session will not be restored.",
+                    )
+                    clearDesiredConnection()
+                    stopSelfSafely()
+                    return@launch
+                }
+                VpnController.appendLog(
+                    LogLevel.INFO,
+                    "Restoring the last VPN session after process restart",
+                )
+                beginConnect(desiredProfileId, userRequested = false)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                fail("Could not restore the last VPN session: ${e.message ?: e.javaClass.simpleName}")
+            }
+        }
+        return START_STICKY
+    }
+
+    private fun beginConnect(profileId: String, userRequested: Boolean) {
         if (!starting.compareAndSet(false, true)) {
             VpnController.appendLog(LogLevel.WARN, "Ignoring duplicate connect request")
             return
+        }
+        // Persist the user's connect intent before any asynchronous work, so a
+        // process death during the attempt can still be restored. The Always-on
+        // and post-restart paths leave an already-persisted intent untouched.
+        if (userRequested) {
+            appContainer.settings.setDesiredConnectedProfile(profileId)
         }
         serviceScope.launch {
             try {
@@ -298,6 +417,9 @@ class MyVpnService : VpnService() {
                 resumeAttempts = 0
                 sawKeyingMaterialError = false
                 mtuWarningLogged = false
+                tunError = null
+                legacyCipherWarningLogged = false
+                val settings = appContainer.settings.settingsNow()
                 val repository = appContainer.profiles
                 val stored: StoredProfile? = repository.get(profileId)
                 if (stored == null) {
@@ -352,7 +474,7 @@ class MyVpnService : VpnService() {
                 }
                 // Existing profiles imported before server-certificate hardening
                 // also get remote-cert-tls server without a re-import.
-                val connectConfig = ProfileImportPolicy.withServerCertificateUsage(negotiatedConfig)
+                var connectConfig = ProfileImportPolicy.withServerCertificateUsage(negotiatedConfig)
                 if (connectConfig != negotiatedConfig) {
                     VpnController.appendLog(
                         LogLevel.INFO,
@@ -360,13 +482,75 @@ class MyVpnService : VpnService() {
                     )
                 }
 
+                // Issue #11: never connect a profile that carries no trust anchor.
+                // Without a CA, peer-fingerprint pin or tls-remote directive the
+                // server cannot be authenticated, so connecting would be unsafe.
+                if (!ProfileTrustPolicy.trustMaterial(connectConfig).hasServerTrust) {
+                    fail(
+                        "This profile has no CA certificate and no peer-fingerprint pin, so the " +
+                            "app cannot verify that it is really connecting to the intended VPN " +
+                            "server. Re-import a profile that includes a <ca> certificate or a " +
+                            "<peer-fingerprint>, then reconnect.",
+                    )
+                    return@launch
+                }
+
+                // Issue #19: report legacy (non-AEAD) cipher findings once per
+                // connection, without blocking profiles that explicitly use the
+                // compatibility cipher policy.
+                val legacyCiphers = ProfileSecurityPolicy.legacyCipherFindings(connectConfig)
+                if (legacyCiphers.isNotEmpty() && !legacyCipherWarningLogged) {
+                    legacyCipherWarningLogged = true
+                    VpnController.appendLog(
+                        LogLevel.WARN,
+                        "This profile allows non-AEAD data cipher(s) " +
+                            legacyCiphers.joinToString { "${it.value} (${it.directive})" } +
+                            ". Enable the AEAD-only cipher policy in Settings to refuse them.",
+                    )
+                }
+                if (settings.cipherPolicy == CipherPolicy.AEAD_ONLY) {
+                    val refusal = ProfileSecurityPolicy.validateAeadOnly(connectConfig)
+                    if (refusal != null) {
+                        fail(refusal)
+                        return@launch
+                    }
+                    connectConfig = ProfileSecurityPolicy.withAeadOnlyPushPolicy(connectConfig)
+                    VpnController.appendLog(
+                        LogLevel.INFO,
+                        "AEAD-only cipher policy: non-AEAD ciphers pushed by the server will be refused.",
+                    )
+                }
+
+                // Issue #19: strict compression mode also installs push filters, so a
+                // server-pushed compressor (including compression stubs) is refused
+                // before Core can create a stub context, and profile-local compression
+                // directives cannot re-enable one.
+                if (settings.compressionPolicy == CompressionPolicy.STRICT) {
+                    connectConfig = ProfileSecurityPolicy.withStrictCompressionPolicy(connectConfig)
+                    VpnController.appendLog(
+                        LogLevel.INFO,
+                        "Strict compression policy: server-pushed compressors will be refused.",
+                    )
+                }
+
+                // Issue #10: an explicit MTU override must survive a server-pushed
+                // tun-mtu, so it is applied to the profile text before Core parses it.
+                connectConfig = MtuPolicy.withTunMtuOverride(connectConfig, settings.mtuMode)
+                VpnController.appendLog(
+                    LogLevel.INFO,
+                    "TUN MTU: ${MtuPolicy.describe(settings.mtuMode)}",
+                )
+
                 val started = newSession.connect(
                     config = connectConfig,
                     username = credentials.username,
                     password = credentials.password,
                     response = credentials.response,
                     keyPassword = credentials.privateKeyPassword,
-                    blockUnusedFamilies = appContainer.settings.settingsNow().blockUnusedFamilies,
+                    blockUnusedFamilies = settings.blockUnusedFamilies,
+                    // Issue #19: strict mode makes Core refuse server-pushed
+                    // compression instead of the ADR-005 asymmetric fallback.
+                    strictCompression = settings.compressionPolicy == CompressionPolicy.STRICT,
                 )
                 if (!started) {
                     synchronized(sessionLock) {
@@ -478,7 +662,15 @@ class MyVpnService : VpnService() {
         }
     }
 
-    private fun requestDisconnect(revoked: Boolean) {
+    /**
+     * @param revoked the system revoked VPN permission (no clean "disconnected"
+     *   state; the error is shown instead).
+     * @param keepDesired true for the captive-portal pause, which keeps the
+     *   persisted connect intent so the UI can resume. Every other explicit
+     *   stop clears it.
+     */
+    private fun requestDisconnect(revoked: Boolean, keepDesired: Boolean = false) {
+        if (!keepDesired) clearDesiredConnection()
         finishing.set(true)
         resumeJob?.cancel()
         if (!revoked && VpnController.snapshot.value.state != VpnState.ERROR) {
@@ -489,7 +681,7 @@ class MyVpnService : VpnService() {
             session.also { session = null }
         }
         if (current == null) {
-            if (!revoked) VpnController.disconnected()
+            if (!revoked) VpnController.disconnected(keepPaused = keepDesired)
             stopSelfSafely()
             return
         }
@@ -504,7 +696,9 @@ class MyVpnService : VpnService() {
             if (revoked) {
                 VpnController.error("VPN permission was revoked. The tunnel has been closed.")
             } else {
-                VpnController.disconnected()
+                // keepDesired is set by the captive-portal pause: keep the paused
+                // banner (and the persisted connect intent) so the user can resume.
+                VpnController.disconnected(keepPaused = keepDesired)
             }
             stopSelfSafely()
         }
@@ -531,8 +725,9 @@ class MyVpnService : VpnService() {
             while (isActive) {
                 // Do not trust the JNI resume() result: core silently ignores a
                 // resume that races a stop, so keep retrying until an observed
-                // RESUME/CONNECTED/failure event cancels this job.
-                delay(PauseRetryPolicy.delayMsForAttempt(resumeAttempts + 1))
+                // RESUME/CONNECTED/failure event cancels this job. Jitter spreads
+                // simultaneous reconnects after a shared outage (issue #14).
+                delay(PauseRetryPolicy.delayMsWithJitter(resumeAttempts + 1))
                 if (destroyed || finishing.get()) return@launch
                 if (VpnController.snapshot.value.state != VpnState.RECONNECTING) return@launch
                 if (!networkMonitor.isOnline()) continue
@@ -575,8 +770,13 @@ class MyVpnService : VpnService() {
                 VpnController.disconnected()
             }
             if (snapshot.state == VpnState.ERROR || snapshot.state == VpnState.AUTH_FAILED) {
+                // Terminal failure: the sticky service must not resurrect this
+                // session after a process death; the user reconnects deliberately.
+                clearDesiredConnection()
                 snapshot.error?.let { VpnNotification.showError(this@MyVpnService, it) }
             }
+            // The TUN hint has been delivered (or is no longer relevant).
+            tunError = null
             stopSelfSafely()
         }
     }
@@ -608,10 +808,18 @@ class MyVpnService : VpnService() {
     }
 
     private fun fail(message: String) {
+        // Every fail() path is terminal for the persistent connect intent: a
+        // sticky-service restart must not revive a session that just failed.
+        clearDesiredConnection()
         VpnController.error(message)
         VpnNotification.showError(this, message)
         updateNotification()
         onSessionFinished()
+    }
+
+    /** Ends the persisted user connect intent (see [SettingsRepository.setDesiredConnectedProfile]). */
+    private fun clearDesiredConnection() {
+        appContainer.settings.setDesiredConnectedProfile(null)
     }
 
     private fun failFast(message: String) {
@@ -723,21 +931,154 @@ class MyVpnService : VpnService() {
                 }
             }
 
-            val dns = config.optJSONArray("dnsServers")
-            var addedDns = 0
-            if (dns != null) {
-                for (i in 0 until dns.length()) {
-                    val server = dns.optString(i)
-                    if (server.isNotBlank()) {
+            val settings = appContainer.settings.settingsNow()
+            // Issue #8: fail closed instead of silently falling back to the
+            // underlying network's resolver when no tunnel DNS is available.
+            val pushedDns = config.optJSONArray("dnsServers")?.let { array ->
+                (0 until array.length())
+                    .mapNotNull { array.optString(it).takeIf(String::isNotBlank) }
+            }.orEmpty()
+            when (
+                val decision = DnsLeakPolicy.decide(
+                    pushedServers = pushedDns,
+                    requireTunnelDns = settings.requireTunnelDns,
+                    fallbackServers = DnsLeakPolicy.parseFallback(settings.fallbackDnsServers),
+                    tunnelIpv4 = hasIpv4,
+                    tunnelIpv6 = hasIpv6,
+                )
+            ) {
+                is Decision.TunnelDns -> {
+                    if (decision.filteredServers.isNotEmpty()) {
+                        // Never log the resolver addresses themselves: they can
+                        // reveal the provider/network configuration.
+                        VpnController.appendLog(
+                            LogLevel.WARN,
+                            "${decision.filteredServers.size} DNS resolver(s) were not installed " +
+                                "because this tunnel does not route their address family; " +
+                                "that family stays blocked by Android instead of leaking.",
+                        )
+                    }
+                    var addedDns = 0
+                    for (server in decision.servers) {
                         runCatching { builder.addDnsServer(server) }.onSuccess { addedDns++ }
                     }
+                    if (decision.usedFallback) {
+                        VpnController.appendLog(
+                            LogLevel.INFO,
+                            "No DNS was pushed by the server; using ${decision.servers.size} " +
+                                "configured fallback resolver(s) through the tunnel.",
+                        )
+                    }
+                    if (addedDns == 0) {
+                        if (settings.requireTunnelDns) {
+                            val reason =
+                                "The \"Require tunnel DNS\" setting is on, but Android accepted no " +
+                                    "usable tunnel DNS server. The connection was stopped so DNS " +
+                                    "requests cannot leak to the underlying network."
+                            tunError = reason
+                            VpnController.appendLog(LogLevel.ERROR, reason)
+                            runCatching { pfd?.close() }
+                            return -1
+                        }
+                        VpnController.appendLog(
+                            LogLevel.WARN,
+                            "The server pushed no usable DNS server and no fallback is configured; " +
+                                "Android may use the underlying network's DNS because \"Require tunnel DNS\" is off.",
+                        )
+                    }
+                }
+                is Decision.Refused -> {
+                    tunError = decision.reason
+                    VpnController.appendLog(LogLevel.ERROR, decision.reason)
+                    runCatching { pfd?.close() }
+                    return -1
                 }
             }
-            if (addedDns == 0) {
-                VpnController.appendLog(
-                    LogLevel.WARN,
-                    "The server pushed no usable DNS server; Android may use the underlying network's DNS.",
+
+            // Issue #17: per-app split tunneling. The policy refuses plans that
+            // would protect nothing; the effective list is applied to the TUN.
+            val installedPackages = runCatching {
+                packageManager.getInstalledPackages(0).map { it.packageName }.toSet()
+            }.getOrDefault(emptySet())
+            when (
+                val splitValidation = SplitTunnelPolicy.validate(
+                    settings.splitTunnelMode,
+                    installedPackages,
+                    settings.splitTunnelPackages,
                 )
+            ) {
+                is Validation.Rejected -> {
+                    tunError = splitValidation.reason
+                    VpnController.appendLog(LogLevel.ERROR, splitValidation.reason)
+                    runCatching { pfd?.close() }
+                    return -1
+                }
+                Validation.Ok -> Unit
+            }
+            if (settings.splitTunnelMode.usesAppList) {
+                val effective = SplitTunnelPolicy.effectivePackages(
+                    settings.splitTunnelPackages,
+                    installedPackages,
+                )
+                val skipped = SplitTunnelPolicy.uninstalled(
+                    settings.splitTunnelPackages,
+                    installedPackages,
+                )
+                VpnController.appendLog(
+                    LogLevel.INFO,
+                    "Split tunneling (${settings.splitTunnelMode}): " +
+                        "${effective.size} selected app(s) applied" +
+                        if (skipped.isEmpty()) {
+                            ""
+                        } else {
+                            "; ${skipped.size} selected app(s) are not installed and were skipped"
+                        },
+                )
+                when (settings.splitTunnelMode) {
+                    SplitTunnelMode.INCLUDE_SELECTED -> {
+                        var refused = 0
+                        for (packageName in effective) {
+                            runCatching { builder.addAllowedApplication(packageName) }
+                                .onFailure { refused++ }
+                        }
+                        if (refused > 0) {
+                            // In INCLUDE mode a package missing from the allow-list
+                            // bypasses the tunnel; refusing to connect is safer than
+                            // silently leaving selected apps unprotected.
+                            val reason =
+                                "Android refused to add $refused of the selected app(s) to the " +
+                                    "VPN allow-list, so they would bypass the tunnel. The " +
+                                    "connection was stopped to avoid leaving apps unprotected. " +
+                                    "Re-select the apps (they may have been uninstalled), then " +
+                                    "reconnect."
+                            tunError = reason
+                            VpnController.appendLog(LogLevel.ERROR, reason)
+                            runCatching { pfd?.close() }
+                            return -1
+                        }
+                    }
+                    SplitTunnelMode.EXCLUDE_SELECTED -> {
+                        var failed = 0
+                        for (packageName in effective) {
+                            runCatching { builder.addDisallowedApplication(packageName) }
+                                .onFailure { failed++ }
+                        }
+                        if (failed > 0) {
+                            // Failing to exclude is the safe direction: those apps stay
+                            // inside the tunnel. Never log the package names.
+                            VpnController.appendLog(
+                                LogLevel.WARN,
+                                "$failed selected app(s) could not be excluded from the VPN; " +
+                                    "their traffic still uses the tunnel (protected).",
+                            )
+                        }
+                    }
+                    SplitTunnelMode.OFF -> Unit
+                }
+                // The UI must never claim the tunnel covers apps that bypass it.
+                SplitTunnelPolicy.warning(settings.splitTunnelMode, effective.size)?.let {
+                    VpnController.appendLog(LogLevel.WARN, it)
+                }
             }
             val searchDomains = config.optJSONArray("searchDomains")
             if (searchDomains != null) {
@@ -800,7 +1141,16 @@ class MyVpnService : VpnService() {
             // Core reports a rekey key-export failure as an unhandled exception;
             // the preceding engine log identifies it, so the mapper can explain it.
             val rekeyHint = name == "SESSION_FINISHED" && error && sawKeyingMaterialError
-            VpnController.engineEvent(name, info, error, fatal, rekeyHint)
+            // When the service refused to build the TUN (fail-closed DNS or
+            // split-tunnel policy), Core's terminal event text is generic. Carry
+            // the app's own reason once and clear it afterwards.
+            val tunHint = tunError
+            if (tunHint != null &&
+                (name == "SESSION_FINISHED" || name.startsWith("TUN") || name == "CLIENT_HALT")
+            ) {
+                tunError = null
+            }
+            VpnController.engineEvent(name, info, error, fatal, rekeyHint, tunHint = tunHint)
             when (name) {
                 "CONNECTED" -> {
                     resumeJob?.cancel()
@@ -819,6 +1169,20 @@ class MyVpnService : VpnService() {
                 }
                 "PAUSE" -> onPaused()
                 "RESUME" -> resumeJob?.cancel()
+                "CLIENT_RESTART" -> {
+                    // Core normally restarts transparently on a server RESTART. When
+                    // the restart is caused by our own pull-filter policy refusing a
+                    // pushed option, Core would loop forever; fail the session
+                    // visibly so the user can change the policy or profile.
+                    if (info.contains("rejected pushed option", ignoreCase = true)) {
+                        fail(
+                            "The server pushed an option this app's security policy refuses " +
+                                "(for example a non-AEAD cipher, or compression in strict mode). " +
+                                "Review the cipher/compression policy in Settings, or use a " +
+                                "compatible profile.",
+                        )
+                    }
+                }
                 "SESSION_FINISHED" -> {
                     resumeJob?.cancel()
                     onSessionFinished()
@@ -840,7 +1204,8 @@ class MyVpnService : VpnService() {
                 mtuWarningLogged = true
                 VpnController.appendLog(
                     LogLevel.WARN,
-                    "A UDP packet exceeded the path MTU. If this repeats on this network, lower the profile's tun-mtu (for example 1400).",
+                    "A UDP packet exceeded the path MTU. If this repeats on this network, lower the " +
+                        "TUN MTU in Settings > MTU (for example 1400) instead of editing the profile.",
                 )
             }
         }

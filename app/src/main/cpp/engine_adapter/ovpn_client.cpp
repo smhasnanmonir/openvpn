@@ -117,8 +117,14 @@ bool AndroidTunBuilder::tun_builder_add_address(const std::string &address,
                                                 bool net30)
 {
     (void)gateway;
-    if (net30)
-        return false;
+    // Legacy "topology net30" servers pass the client address with a /30 prefix
+    // and the server's virtual address as the gateway. Android has no
+    // point-to-point interface concept, but a /30 address is valid for
+    // VpnService.Builder.addAddress() and the routes (including the full-tunnel
+    // default route) are installed separately, so net30 servers work without a
+    // synthetic gateway. Rejecting net30 made the client fail against every
+    // OpenVPN server that uses the legacy default topology.
+    (void)net30;
     if (prefix_length < 0 || prefix_length > (ipv6 ? 128 : 32))
         return false;
     addresses_.push_back(TunAddress{address, prefix_length, ipv6});

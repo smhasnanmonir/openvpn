@@ -20,6 +20,12 @@ The revision is immutable and present as a git submodule. Update it only by
 changing the submodule commit, re-running the native build, and reviewing the
 license delta.
 
+`scripts/generate-sbom.sh` reads this commit from the git submodule gitlink
+(`git ls-tree HEAD third_party/openvpn3`), not from this table, and fails when
+the submodule is missing, is checked out at another commit, or resolves to a
+different pin than the release commit. This keeps the SBOM tied to the exact
+core revision that was built.
+
 ## Actual source files used
 
 | Path (inside `third_party/openvpn3`) | Purpose |
@@ -180,14 +186,25 @@ profiles that need a key passphrase.
 
 ### Compatibility settings
 
+The pinned `openvpn/ssl/proto.hpp` is copied and patched at CMake configure time
+(never editing the submodule). The generated header contains three fail-fast
+patches: (1) advertise `IV_PROTO_DYN_TLS_CRYPT` only when the TLS backend can
+export keying material, (2) reject a server-pushed `dyn-tls-crypt` with a clear
+error when it cannot, and (3) reject a server-pushed compressor loudly when the
+Strict compression policy is active (ADR-006, ADR-010). If upstream text moves,
+the build fails and names the function to re-check.
+
 Compatibility settings keep older provider profiles connectable with the pinned
 3.9 core:
 
-- `Config.compressionMode = "asym"` (set in `native_bridge.cpp`). Core's default
-  is `"no"`, which raises `COMPRESS_ERROR` when a server pushes LZO asymmetric
-  compression right after `CONNECTED`; `"asym"` accepts exactly the
-  server-to-client direction and still refuses symmetric compression (see
-  `openvpn/ssl/proto_context_options.hpp` and ADR-005).
+- `Config.compressionMode` is set per user policy (`app/src/main/cpp/native_bridge.cpp`).
+  Core's default is `"no"`, which raises `COMPRESS_ERROR` when a server pushes
+  LZO asymmetric compression right after `CONNECTED`. The default
+  `Compatibility` policy keeps `"asym"`: it accepts exactly the
+  server-to-client direction and still refuses symmetric compression (ADR-005,
+  ADR-010). The `Strict` policy uses `"no"` and relies on patch #3 below to make
+  a server-pushed compressor fail with a clear error instead of silently
+  degrading.
 - Legacy `tls-cipher` pins are dropped at import time when every suite in the
   directive is a non-ECDHE (TLS 1.2 legacy) suite; those servers now negotiate
   TLS 1.3 and the pinned list otherwise stalls the handshake until the timeout.
@@ -207,6 +224,26 @@ Compatibility settings keep older provider profiles connectable with the pinned
   `IV_PROTO_TLS_KEY_EXPORT` guard, and rejects a server-pushed
   `dyn-tls-crypt` flag with a clear `process_server_push_error` when the
   backend cannot export keying material. See ADR-006.
+- **Generated header patch #3 (strict compression).** For the `Strict`
+  compression policy, the same generated `proto.hpp` patch makes a real
+  server-pushed compressor fail loudly with an explicit server-push error
+  instead of silently degrading the policy. A compression stub (`COMP_STUB`,
+  no compressed payload) is still accepted so stub-pushing providers keep
+  working. The patch is located by exact upstream text and the build fails if
+  the pinned revision moves; the submodule stays unmodified. See ADR-010 and
+  `app/src/main/cpp/CMakeLists.txt`.
+- **Connect-time policy transforms (app-side, not core APIs).** The MTU
+  override appends `pull-filter ignore tun-mtu` and `tun-mtu N` to the
+  connect-time configuration so a server-pushed value cannot override the
+  user's choice; the AEAD-only cipher policy appends
+  `pull-filter accept cipher AES-256-GCM`, `... AES-192-GCM`,
+  `... AES-128-GCM`, `... CHACHA20-POLY1305` and `pull-filter reject cipher`. These are profile
+  normalization/config transforms applied by the app; Core still parses and
+  validates the resulting configuration. The active compression mode is passed
+  to native code as a config flag. See ADR-010, ADR-008, `docs/profile-import.md`.
+- **DNS is never injected by the app or the core.** `cfg.googleDnsFallback`
+  stays false; if the pushed DNS is unusable and no validated user fallback is
+  configured, the service refuses to create the TUN (ADR-008).
 - For CA-based profiles that do not already specify `remote-cert-*`,
   `tls-remote`, or `peer-fingerprint` (including the `<peer-fingerprint>`
   inline block), the app appends `remote-cert-tls server` at import and
@@ -249,6 +286,14 @@ Pinned dependencies:
 | jsoncpp | 1.9.6 | `f93b6dd7ce796b13d02c108bc9f79812245a82e577581c4c9aabe57075c90ea2` |
 | lz4 | 1.9.4 | `0b0e3aa07c8c063ddf40b082bdf7e37a1562bda40a0ff5272957f3e987e0e54b` |
 | mbedTLS | 3.6.2 | `8b54fb9bcf4d5a7078028e0520acddefb7900b3e66fec7f7175bb5b7d85ccdca` |
+
+The SBOM records these upstream dependencies as `pkg:github/<org>/<repo>`
+purls (mbedtls → `Mbed-TLS/mbedtls`, asio → `chriskohlhoff/asio`, fmt →
+`fmtlib/fmt`, jsoncpp → `open-source-parsers/jsoncpp`, lz4 → `lz4/lz4`) so OSV
+can map them to advisories. asio is recorded with the upstream version `1.24.0`
+and the OpenVPN patch count as the `openvpn:patches` property (currently `7`);
+the `+ 7 OpenVPN patches` suffix above is the human-readable form of the same
+pin.
 
 Commands:
 
@@ -297,17 +342,31 @@ plus the submodule.
 - **WINS** is not supported on Android; the callback returns false.
 - **`--dns` with DoH/DoT or a non-zero port** is rejected because
   `VpnService.Builder` accepts only plain numeric DNS addresses without ports.
-- **Local LAN access / per-app split tunneling** is not exposed by the UI.
+- **Local LAN access / per-app split tunneling:** per-app split tunneling is
+  now exposed (Off/Include/Exclude + per-app picker, ADR-011); it relies on
+  Android's `addAllowedApplication`/`addDisallowedApplication` and the Play
+  `QUERY_ALL_PACKAGES` visibility permission (see `docs/security.md`). Local LAN
+  access is still not exposed.
 - **Android family blocking:** Android blocks an address family by default when
   the VPN has no address/route/DNS of that family. `allowFamily()` only
   *unblocks*; it cannot block a family that has a configured address. A
   profile's `block-ipv6`/`block-ipv4` directive is therefore not enforceable
   when that family has an address; the app logs a warning instead of claiming
   success.
+- **Tunnel DNS:** when the server pushes no usable resolver and "Require tunnel
+  DNS" is on (default), the connection is refused rather than falling back to
+  the underlying resolver. A user-configured, validated IPv4/IPv6 fallback can
+  be installed through the tunnel. `googleDnsFallback` stays false (ADR-008).
 - **Compression:** symmetric compression is refused (VORACLE mitigation). The
-  app sets `compressionMode = "asym"` so providers that push asymmetric
-  server-to-client LZO compression still work instead of failing right after
-  `CONNECTED` with `COMPRESS_ERROR`; see ADR-005.
+  default `Compatibility` policy keeps `compressionMode = "asym"` so providers
+  that push asymmetric server-to-client LZO compression still work instead of
+  failing right after `CONNECTED` with `COMPRESS_ERROR`; the opt-in `Strict`
+  policy uses `"no"` plus patch #3 so a server-pushed compressor fails loudly
+  (ADR-005, ADR-010).
+- **Cipher policy:** profiles drive data ciphers by default; the opt-in
+  AEAD-only policy adds connect-time `pull-filter` rules for
+  AES-GCM variants/ChaCha20-Poly1305 and rejects a non-AEAD server push, failing
+  visibly (ADR-010).
 - **Dynamic tls-crypt:** not advertised on the mbedTLS build because the pinned
   Core 3.9 mbedTLS backend cannot export keying material. Servers fall back to
   the control-channel protection used for the initial handshake; a server that
@@ -316,9 +375,14 @@ plus the submodule.
 - **Paused reconnect gap:** a post-connect connection timeout enters Core's
   `PAUSE` state, which tears down the old TUN. Android then restores the
   underlying network, so traffic is not protected until a resume attempt
-  succeeds; the service retries with backoff and a cap, then surfaces an
-  explicit "not protected" error. A fresh TUN is created on resume;
-  `tunPersist` remains disabled by design. See ADR-007.
+  succeeds; the service retries with bounded backoff + bounded jitter and a cap,
+  then surfaces an explicit "not protected" error. A fresh TUN is created on
+  resume; `tunPersist` remains disabled by design. See ADR-007/ADR-013.
+- **MTU:** the pushed MTU is used by default; a fixed 1500/1400/1280 override
+  is applied with `pull-filter ignore tun-mtu` + `tun-mtu N`. No automatic
+  PMTU discovery or auto-reconnect fallback (ADR-010 scope; MTU is issue #10).
+- **Revocation:** no CRL/OCSP in the pinned core/client; revocation is
+  enforced server/PKI-side (ADR-009).
 - **DCO** is not enabled for Android; packet processing uses the core's TUN
   path.
 - **`tunPersist`** is false; TUN is recreated per connection.
@@ -365,3 +429,9 @@ plus the submodule.
   `setenv CLIENT_CERT 0`, and that the production importer stores the adapted
   profile and dedupes re-imports. A live handshake against the provider was not
   run (no credentials available).
+- For the security/reliability backlog branch (#8–#21), CI additionally checks
+  the generated header for the strict-compression patch, runs the packaged-APK
+  16 KB alignment gate (`scripts/check-16kb-alignment.sh`), and generates/uploads
+  the CycloneDX SBOM. The current branch verification record (JVM test count,
+  lint, native builds, device status) is kept in `docs/testing.md`; do not
+  assume device-level results that are not recorded there.

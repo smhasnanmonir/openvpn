@@ -2,6 +2,7 @@ package com.smhasnan.openvpn.vpn
 
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -126,5 +127,59 @@ class VpnControllerTest {
         VpnController.engineEvent("SESSION_FINISHED", "", false, false)
         assertEquals(VpnState.AUTH_FAILED, snapshot().state)
         assertEquals("AUTH_FAILED", snapshot().error)
+    }
+
+    @Test
+    fun pausedForPortalMarksADisconnectedPauseAndKeepsTheProfile() {
+        VpnController.prepare("profile", "Provider profile", "🛡️")
+        VpnController.engineEvent("CONNECTING", "", false, false)
+        VpnController.engineEvent("CONNECTED", "", false, false)
+
+        VpnController.pausedForPortal()
+
+        assertEquals(VpnState.DISCONNECTED, snapshot().state)
+        assertTrue(snapshot().pausedForPortal)
+        assertEquals("profile", snapshot().profileId)
+        assertEquals("Provider profile", snapshot().profileName)
+        assertNull(snapshot().connectedAtMillis)
+    }
+
+    @Test
+    fun portalPauseTeardownKeepsThePauseFlagButAnExplicitDisconnectClearsIt() {
+        VpnController.prepare("profile", "Provider profile", "🛡️")
+        VpnController.pausedForPortal()
+
+        // A portal-pause teardown must keep the banner/resume affordance...
+        VpnController.disconnected(keepPaused = true)
+        assertEquals(VpnState.DISCONNECTED, snapshot().state)
+        assertTrue(snapshot().pausedForPortal)
+        assertEquals("profile", snapshot().profileId)
+
+        // ...an explicit disconnect must clear it, otherwise the UI would offer a
+        // "Resume" for a session the user deliberately ended.
+        VpnController.disconnected()
+        assertFalse(snapshot().pausedForPortal)
+    }
+
+    @Test
+    fun connectedEventClearsThePortalPause() {
+        VpnController.prepare("profile", "Provider profile", "🛡️")
+        VpnController.pausedForPortal()
+
+        VpnController.engineEvent("CONNECTED", "", false, false)
+
+        assertEquals(VpnState.CONNECTED, snapshot().state)
+        assertFalse(snapshot().pausedForPortal)
+    }
+
+    @Test
+    fun errorClearsThePortalPause() {
+        VpnController.prepare("profile", "Provider profile", "🛡️")
+        VpnController.pausedForPortal()
+
+        VpnController.error("DNS refused")
+
+        assertEquals(VpnState.ERROR, snapshot().state)
+        assertFalse(snapshot().pausedForPortal)
     }
 }
