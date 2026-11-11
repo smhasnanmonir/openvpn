@@ -27,6 +27,11 @@ object OpenVpnNative {
         response: String,
         keyPassword: String,
         blockUnusedFamilies: Boolean,
+        /**
+         * Refuse every server-pushed compression method instead of the
+         * provider-compatible asymmetric LZO mode (ADR-005 / issue #19).
+         */
+        strictCompression: Boolean,
     ): Boolean
     external fun disconnect(handle: Long)
     external fun respondToChallenge(handle: Long, response: String): Boolean

@@ -182,7 +182,8 @@ class JniSession final : public monirvpn::EngineCallbacks
                  const std::string &password,
                  const std::string &response,
                  const std::string &key_password,
-                 bool block_unused_families)
+                 bool block_unused_families,
+                 bool strict_compression)
     {
         std::lock_guard<std::mutex> lock(mutex_);
         if (running_)
@@ -196,6 +197,7 @@ class JniSession final : public monirvpn::EngineCallbacks
         response_ = response;
         key_password_ = key_password;
         block_unused_families_ = block_unused_families;
+        strict_compression_ = strict_compression;
         dynamic_challenge_pending_ = false;
         return start_locked();
     }
@@ -447,6 +449,7 @@ class JniSession final : public monirvpn::EngineCallbacks
         std::string response;
         std::string key_password;
         std::string dynamic_cookie;
+        bool strict_compression = false;
         {
             std::lock_guard<std::mutex> lock(mutex_);
             client = client_;
@@ -456,6 +459,7 @@ class JniSession final : public monirvpn::EngineCallbacks
             response = response_;
             key_password = key_password_;
             dynamic_cookie = dynamic_cookie_;
+            strict_compression = strict_compression_;
         }
 
         if (client)
@@ -474,7 +478,10 @@ class JniSession final : public monirvpn::EngineCallbacks
             // LZO compression. Core's default ("no") tears the session down with
             // COMPRESS_ERROR right after CONNECTED; "asym" accepts exactly that
             // legacy server-side mode while still refusing symmetric compression.
-            cfg.compressionMode = "asym";
+            // Strict policy (#19) keeps "no": the generated core patch then fails
+            // the connection with a clear error when a server pushes a real
+            // compressor instead of silently degrading to asymmetric mode.
+            cfg.compressionMode = strict_compression ? "no" : "asym";
             cfg.privateKeyPassword = key_password;
             cfg.googleDnsFallback = false;
             cfg.synchronousDnsLookup = false;
@@ -568,6 +575,7 @@ class JniSession final : public monirvpn::EngineCallbacks
     std::string key_password_;
     std::string dynamic_cookie_;
     bool block_unused_families_ = true;
+    bool strict_compression_ = false;
 };
 
 JniSession *from_handle(jlong handle)
@@ -691,7 +699,8 @@ Java_com_smhasnan_openvpn_nativevpn_OpenVpnNative_connect(JNIEnv *env,
                                                           jstring password,
                                                           jstring response,
                                                           jstring keyPassword,
-                                                          jboolean blockUnusedFamilies)
+                                                          jboolean blockUnusedFamilies,
+                                                          jboolean strictCompression)
 {
     auto *session = from_handle(handle);
     if (session == nullptr)
@@ -703,7 +712,8 @@ Java_com_smhasnan_openvpn_nativevpn_OpenVpnNative_connect(JNIEnv *env,
                                 to_std(env, password),
                                 to_std(env, response),
                                 to_std(env, keyPassword),
-                                blockUnusedFamilies == JNI_TRUE)
+                                blockUnusedFamilies == JNI_TRUE,
+                                strictCompression == JNI_TRUE)
                    ? JNI_TRUE
                    : JNI_FALSE;
     }

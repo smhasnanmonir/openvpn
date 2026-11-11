@@ -31,6 +31,7 @@ class NativeSession(private val callbacks: NativeCallbacks) : AutoCloseable {
         response: String?,
         keyPassword: String?,
         blockUnusedFamilies: Boolean,
+        strictCompression: Boolean = false,
     ): Boolean {
         val current = handle.get()
         if (current == 0L) return false
@@ -42,6 +43,7 @@ class NativeSession(private val callbacks: NativeCallbacks) : AutoCloseable {
             response.orEmpty(),
             keyPassword.orEmpty(),
             blockUnusedFamilies,
+            strictCompression,
         )
     }
 

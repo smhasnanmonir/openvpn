@@ -70,6 +70,26 @@ string(REPLACE
     OPENVPN3_PROTO_CONTENT
     "${OPENVPN3_PROTO_CONTENT}")
 
+# 3. Strict security policy (issue #19): when the app disabled compression,
+#    refuse a server-pushed real compressor instead of silently degrading to
+#    asymmetric compression. Compression stubs carry no compressed payload and
+#    stay accepted, so providers that push a stub keep working in strict mode.
+set(OPENVPN3_STRICT_COMPRESSION_UNPATCHED
+    "                        if (pco.is_comp())\n                            comp_ctx = CompressContext(meth, pco.is_comp_asym());\n                        else\n                        {\n                            // server pushes compression but client has compression disabled\n                            // degrade to asymmetric compression (downlink only)\n                            comp_ctx = CompressContext(meth, true);\n                            if (!comp_ctx.is_any_stub(meth))\n                            {\n                                OPENVPN_LOG(\"Server has pushed compressor \"\n                                            << comp_ctx.str()\n                                            << \", but client has disabled compression, switching to asymmetric\");\n                            }\n                        }")
+set(OPENVPN3_STRICT_COMPRESSION_PATCHED
+    "                        if (pco.is_comp())\n                            comp_ctx = CompressContext(meth, pco.is_comp_asym());\n                        else if (CompressContext::is_any_stub(meth))\n                        {\n                            // A compression stub carries no compressed payload; keep\n                            // accepting it so stub-pushing providers still work.\n                            comp_ctx = CompressContext(meth, true);\n                        }\n                        else\n                        {\n                            // The app's strict security policy disabled compression and\n                            // must not silently degrade to asymmetric compression.\n                            OPENVPN_THROW(process_server_push_error,\n                                          \"server requires compression but the app's strict security policy refuses it\");\n                        }")
+string(FIND "${OPENVPN3_PROTO_CONTENT}" "${OPENVPN3_STRICT_COMPRESSION_UNPATCHED}" OPENVPN3_STRICT_COMPRESSION_POS)
+if(OPENVPN3_STRICT_COMPRESSION_POS EQUAL -1)
+    message(FATAL_ERROR
+        "The OpenVPN Core 3.9 strict-compression guard no longer applies to "
+        "${OPENVPN3_PROTO_SOURCE}. Re-check parse_pushed_compression() before updating the pinned core.")
+endif()
+string(REPLACE
+    "${OPENVPN3_STRICT_COMPRESSION_UNPATCHED}"
+    "${OPENVPN3_STRICT_COMPRESSION_PATCHED}"
+    OPENVPN3_PROTO_CONTENT
+    "${OPENVPN3_PROTO_CONTENT}")
+
 # Only rewrite the generated header when its content changed: an unconditional
 # file(WRITE) on every configure bumps its timestamp and rebuilds the whole
 # OpenVPN Core translation unit for a no-op Gradle sync.
@@ -110,6 +130,10 @@ target_compile_options(ovpn3 PRIVATE
     -Wno-deprecated-declarations
     -fexceptions
     -frtti
+    # Native hardening (issue #12). The app builds with -O2 from build.gradle.kts,
+    # so FORTIFY checks are active. Stack canaries cover Core's packet/TLS paths.
+    -fstack-protector-strong
+    -D_FORTIFY_SOURCE=2
 )
 
 add_library(nativevpn SHARED
@@ -130,6 +154,10 @@ target_compile_options(nativevpn PRIVATE
     -Wno-unused-parameter
     -fexceptions
     -frtti
+    # Native hardening (issue #12). The app builds with -O2 from build.gradle.kts,
+    # so FORTIFY checks are active. Stack canaries cover the JNI/TUN parser paths.
+    -fstack-protector-strong
+    -D_FORTIFY_SOURCE=2
 )
 target_link_libraries(nativevpn PRIVATE
     ovpn3
@@ -143,6 +171,10 @@ target_link_libraries(nativevpn PRIVATE
 )
 target_link_options(nativevpn PRIVATE
     "-Wl,--exclude-libs,ALL"
+    # Full RELRO plus non-lazy binding (issue #12): the GOT is read-only after
+    # relocation and no symbol is resolved lazily at call time.
+    "-Wl,-z,relro"
+    "-Wl,-z,now"
     # Android 15+ devices can use 16 KB memory pages. Align the shared object
     # so the packaged native library loads on those devices.
     "-Wl,-z,max-page-size=16384"
