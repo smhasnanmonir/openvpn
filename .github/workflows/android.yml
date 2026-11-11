@@ -19,6 +19,12 @@ jobs:
     name: Build, test, lint
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    env:
+      # Hosted runners have no IPv6 route while services.gradle.org resolves to
+      # IPv6 first. The Gradle wrapper downloads its distribution with a plain
+      # HttpsURLConnection (no IPv4 fallback), which fails with "Network is
+      # unreachable"; force the JVM to use IPv4 so `./gradlew` can bootstrap.
+      JAVA_OPTS: "-Djava.net.preferIPv4Stack=true"
     steps:
       - name: Checkout with pinned OpenVPN Core submodule
         uses: actions/checkout@v7
@@ -35,7 +41,20 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
         with:
-          gradle-version: "8.11.1"
+          # Use the project wrapper instead of a CI-preinstalled Gradle so that
+          # wrapper bumps (Dependabot PRs) are actually exercised by CI.
+          gradle-version: "wrapper"
+
+      - name: Verify the project Gradle wrapper is used
+        run: |
+          wrapper_version="$(sed -nE 's/^distributionUrl=.*gradle-([0-9.]+)-bin\.zip.*/\1/p' gradle/wrapper/gradle-wrapper.properties)"
+          reported_version="$(./gradlew --no-daemon --version | sed -nE 's/^Gradle ([0-9.]+)$/\1/p' | head -n 1)"
+          echo "wrapper distribution: ${wrapper_version}"
+          echo "./gradlew reports:    ${reported_version}"
+          if [[ -z "$wrapper_version" || "$wrapper_version" != "$reported_version" ]]; then
+            echo "::error::CI is not using the project Gradle wrapper (wrapper '${wrapper_version}', reported '${reported_version}')"
+            exit 1
+          fi
 
       - name: Install pinned Android SDK packages
         timeout-minutes: 20
@@ -90,7 +109,7 @@ jobs:
 
       - name: Unit tests, lint, debug APK, instrumentation-test APK
         run: |
-          gradle --no-daemon \
+          ./gradlew --no-daemon \
             :app:testDebugUnitTest \
             :app:lintDebug \
             :app:assembleDebug \
@@ -113,7 +132,9 @@ jobs:
       - name: Generate SBOM (CycloneDX)
         run: |
           export ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
-          bash scripts/generate-sbom.sh --output build/sbom/sbom.cdx.json
+          # Use the project wrapper explicitly; scripts/generate-sbom.sh would
+          # otherwise prefer a `gradle` command found on PATH.
+          GRADLE_BIN=./gradlew bash scripts/generate-sbom.sh --output build/sbom/sbom.cdx.json
 
       - name: Upload SBOM
         uses: actions/upload-artifact@v7
@@ -165,7 +186,7 @@ jobs:
           APK=app/build/outputs/apk/release/app-release.apk
           BUILD_TOOLS="$ANDROID_SDK_ROOT/build-tools/35.0.0"
 
-          gradle --no-daemon :app:assembleRelease :app:testReleaseUnitTest :app:lintRelease
+          ./gradlew --no-daemon :app:assembleRelease :app:testReleaseUnitTest :app:lintRelease
 
           # Same 16 KB gate and ABI assertion as the debug APK: the artifact that
           # is published must not rely on debug-only checks.
