@@ -548,10 +548,13 @@ in `docs/security/leak-test-matrix.md`.
 **Automated (JVM/CI):**
 
 - New pure-Kotlin policy objects have JVM tests: `DnsLeakPolicy` (IPv4/IPv6
-  normalization, fail-closed decisions, fallback validation), `ProfileTrustPolicy`
-  (CA/peer-fingerprint/`tls-remote` acceptance, no-trust rejection, CA-change),
-  `MtuPolicy` (fixed-MTU config transform), `ProfileSecurityPolicy`
-  (AEAD-only `pull-filter` transform and policy text), `SplitTunnelPolicy`
+  normalization, fail-closed decisions, fallback validation, address-family
+  filtering), `ProfileTrustPolicy`
+  (CA/`tls-remote` acceptance, peer-fingerprint reported but rejected as a sole
+  anchor, no-trust rejection, CA-change), `MtuPolicy` (fixed-MTU config
+  transform), `ProfileSecurityPolicy`
+  (AEAD-only `pull-filter` transform, strict-compression filters, fallback
+  cipher, filter stripping, idempotence), `SplitTunnelPolicy`
   (zero-app refusal, stale-package filtering, warning text),
   `CaptivePortalPolicy` (capability interpretation, paused-state honesty), and
   the jittered `PauseRetryPolicy`.
@@ -598,13 +601,54 @@ in `docs/security/leak-test-matrix.md`.
   fmt 10.2.1, jsoncpp 1.9.6, lz4 1.9.4, NDK 27.2.12479018, and the Gradle
   `releaseRuntimeClasspath` Maven coordinates).
 
+**Live tunnel verification (release 1.4.0, Lead, 2026-11-11):**
+
+A real OpenVPN 2.4 server (`kylemanna/openvpn`, UDP 1194, `ovpn-data` volume,
+net30 pool) and the debug `x86_64` APK on emulator `ncvpnverify` (API 36.1)
+were used. The profile is a CA-based client profile with no client certificate.
+
+- **Baseline full-tunnel connect** — `PROTECTED`, tunnel IP assigned, traffic
+  counters moving, `ping 192.168.255.1` through the tunnel **3/3 packets**
+  (`~2-5 ms`); server log shows TLSv1.3, negotiated `AES-256-GCM`,
+  `topology net30`, `ifconfig 192.168.255.6 192.168.255.5`. This verifies the
+  net30 TUN fix end to end.
+- **AEAD-only cipher policy** — selected in Settings, reconnected: `PROTECTED`
+  again, server log `Data Channel: using negotiated cipher 'AES-256-GCM'`.
+  This verifies the **quoted three-token `pull-filter` syntax** is accepted by
+  Core (the previous unquoted four-token form was rejected as a malformed
+  option).
+- **Strict compression refusal** — server configured with
+  `comp-lzo adaptive` + `push "comp-lzo adaptive"`, policy Strict, reconnect:
+  the app showed a visible `ERROR` with
+  “The server pushed an option this app's security policy refuses…” instead of
+  negotiating compression or looping restarts. This verifies both the
+  app-level `pull-filter` reject lines and the fail-fast `CLIENT_RESTART`
+  handling.
+- **Compatibility compression still works** — policy Compatibility against the
+  same LZO server: `PROTECTED`, `ping 192.168.255.1` **3/3**, download/upload
+  counters moving (29 KB / 49 KB), no compression errors in the server log.
+  This verifies the ADR-005 LZO-ASYM provider path is not broken by the strict
+  mode.
+- **DNS fail-closed** — server restarted with the `dhcp-option DNS` pushes
+  removed: the app refused the connection with the explicit
+  “The VPN server did not provide a usable DNS resolver…” message and never
+  reported `PROTECTED`. Restoring the pushes made the next connection succeed.
+- **Supply chain** — `scripts/generate-sbom.sh` (181 components) scanned with
+  `ghcr.io/google/osv-scanner:v2.7.1 scan source -L …sbom.cdx.json` →
+  **No issues found** (exit 0). Gitleaks v8.28.0 with `.gitleaks.toml` over the
+  full git history (96 commits) → **no leaks found**.
+
 **Not verified for this PR (device/server required):**
 
-- DNS fail-closed and fallback routing (needs a controlled server with/without
-  pushed DNS).
+- DNS **fallback** routing (unit-tested only; the fail-closed refusal path was
+  tested live, the configured-fallback path was not).
 - Split-tunnel packet capture, captive-portal pause/resume, Always-on/lockdown,
-  16 KB device launch, process death/reboot, lifecycle backoff on a real
-  network.
+  process death/reboot (the emulator has no root to kill the foreground
+  service), lifecycle backoff on a real network.
+- **16 KB page-size device/emulator launch.** The packaged APK passes the
+  16 KB alignment gate (CI + local), and the CI release job now gates the
+  signed APK too, but a `google_apis_ps16k` system image could not be installed
+  on this host (disk space), so the app was not launched on a 16 KB kernel.
 - Physical-device leak matrix rows; see `docs/security/leak-test-matrix.md`.
 - MASVS/ASVS assessment and independent penetration test (not performed).
 

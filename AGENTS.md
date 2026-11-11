@@ -4,10 +4,11 @@
 > what the product is, what has already been built, what is in flight, what is
 > left, and how to verify work. Keep it up to date when you change the project.
 >
-> **Status snapshot: 2026-11-11 ~14:10 Asia/Dhaka (backlog PR ready for review,
-> local gates green).** Do not trust this snapshot blindly: re-run the
+> **Status snapshot: 2026-11-11 ~16:40 Asia/Dhaka (release 1.4.0 merge
+> candidate: backlog PR #22 + review fixes, local gates green and live tunnel
+> verification done).** Do not trust this snapshot blindly: re-run the
 > verification commands and check GitHub before acting (see §12). This file is
-> committed with the backlog PR; keep it current at merge time.
+> committed with the release PR; keep it current at merge time.
 
 ---
 
@@ -16,15 +17,17 @@
 | Item | Value |
 |---|---|
 | Platform | Android OpenVPN client (Kotlin + Jetpack Compose + `VpnService` + OpenVPN 3 Core 3.9 via JNI) |
-| `main` | `eb532ce` “Merge pull request #5 …”; last release tag `v1.2.0` |
-| Active PR | **#22** security/reliability backlog (#8–#21), branch `feat/backlog-security-reliability`; CI “Build, test, lint” **green** (both ABIs, 16 KB gate, SBOM) |
+| `main` | `eb532ce` “Merge pull request #5 …”; last release tag `v1.3.0` (versionCode 45); next tag `v1.4.0` |
+| Active PR | **#22** security/reliability backlog (#8–#21) + release review fixes, branch `feat/backlog-security-reliability`; CI “Build, test, lint” **green**; local gates re-run after the review fixes |
 | PR #5 | **merged** (`eb532ce`); closed #4, #6, #7 |
-| Unit tests | **225 tests / 24 suites / 0 failures** (`:app:testDebugUnitTest`, merge-candidate branch; was 110/16 on `main`): +115 tests, +8 suites. CI run on PR #22 is green. |
+| Unit tests | **238 tests / 24 suites / 0 failures** (`:app:testDebugUnitTest`, release-1.4.0 candidate; was 110/16 on `main`, 225/24 before the review fixes). |
 | Lint | **0 errors, 45 warnings** (`:app:lintDebug`, unchanged warning count); `abortOnError=true` |
 | Native | Local `x86_64` build verified: three generated-core-header patches compiled in, LOAD `p_align 0x4000`, RELRO + BIND_NOW, stack canary/FORTIFY symbols. `arm64-v8a` is built and gated in CI only (host has no arm64 deps tree). |
-| 16 KB pages | Fresh debug APK passes `scripts/check-16kb-alignment.sh` (every packaged `.so` LOAD `p_align 0x4000`, `zipalign -c -P 16 4` OK); CI runs the same gate for both ABIs |
+| 16 KB pages | Fresh APK passes `scripts/check-16kb-alignment.sh` (every packaged `.so` LOAD `p_align 0x4000`, `zipalign -c -P 16 4` OK); CI gates debug **and signed release** APKs for both ABIs. A 16 KB emulator image could not be installed on this host (disk), so 16 KB device launch is still unverified. |
+| Live tunnel | Verified against a local OpenVPN 2.4 net30 server on emulator API 36.1: full tunnel + ping, AEAD-only (AES-256-GCM), strict compression refusal, compatibility LZO-ASYM, DNS fail-closed. Details in `docs/testing.md` (“Live tunnel verification”). |
+| Supply chain | SBOM (181 components) scanned with pinned `osv-scanner v2.7.1` → no issues; gitleaks v8.28.0 over 96 commits with `.gitleaks.toml` → no leaks. |
 | Open issues | The PR closes #8/#9/#10/#11/#12/#13/#14/#17/#18/#19 and keeps #15 (publish/Play submission), #16 (backend), #20 (iOS), #21 (physical-device leak matrix/pen test) open with the repo deliverables documented |
-| Next action | Land the backlog PR, then execute the physical-device leak-test matrix (`docs/security/leak-test-matrix.md`) and publish the privacy policy / Play declarations. |
+| Next action | Merge PR #22, tag `v1.4.0`, verify the published APK/SBOM assets (cert digest, versionName/versionCode, both ABIs, 16 KB gate), then run `security.yml` via `workflow_dispatch`; execute the physical-device leak-test matrix and publish the privacy policy / Play declarations. |
 
 **What “done” looks like for this milestone:** the backlog PR merged; #8–#21
 closed or explicitly tracked (device-only items remain open); privacy policy
@@ -343,9 +346,10 @@ PR-description notes are retained for history only.
 - **Known non-blocking residuals**:
   - counters can briefly go backwards when TUN counters first appear (cosmetic);
   - `remote-cert-ku`-only profiles are exempted from the EKU hardening;
-  - pre-existing unlocked native-handle reads for
-    `connect()/statsJson()/disconnect()` (not introduced by #5; tracked under
-    #14/lifecycle);
+  - the pre-existing unlocked native-handle reads for
+    `connect()/statsJson()/disconnect()` are now covered by the shared
+    `NativeSession` handle lock (short calls + close); `connect()` still creates
+    the handle outside the lock by design;
   - issue bodies for #14 and #21 still describe the pre-review state
     (“fixed 5 s loop”, “103 tests”) — update them after merge.
 - **Closing references**: #4/#6/#7 only. Do not re-link #8–#15 as closing.
@@ -361,7 +365,7 @@ runtime/device verification.
 | #8 DNS fail-closed | `DnsLeakPolicy`; "Require tunnel DNS" default ON + validated IPv4/IPv6 fallback DNS; refusal before TUN creation; logs fallback usage; Settings UI. | ADR-008, `docs/security.md` |
 | #9 Always-on/lockdown | Settings readiness card via `AlwaysOnVpnPolicy`/`AlwaysOnVpnStatus` (hidden `Settings.Secure` keys, UNKNOWN when unreadable), explanations, link; never claims a kill switch. | `docs/security.md` |
 | #10 MTU | `MtuPolicy`; Auto/1500/1400/1280 setting; fixed value appends `pull-filter ignore tun-mtu` + `tun-mtu N`; MTU in connection details; no auto-reconnect loop. | `docs/openvpn-core-integration.md` |
-| #11 strict trust | `ProfileTrustPolicy`; import + connect-time requirement for CA/`peer-fingerprint`/`tls-remote`; CA-change warning; revocation documented server-side; no CRL/OCSP. | ADR-009, `docs/profile-import.md` |
+| #11 strict trust | `ProfileTrustPolicy`; import + connect-time requirement for CA or legacy `tls-remote`; `peer-fingerprint` is reported but NOT accepted as an anchor (the pinned mbedTLS backend ignores pins), fingerprint-only profiles are rejected; CA-change warning; revocation documented server-side; no CRL/OCSP. | ADR-009, `docs/profile-import.md` |
 | #12 16 KB + hardening | `scripts/check-16kb-alignment.sh` (packaged `.so` LOAD `p_align >= 0x4000`, `zipalign -c -P 16 4`) wired into CI; hardening flags kept/documented. | `docs/testing.md`, `docs/release.md` |
 | #13 supply chain | `scripts/generate-sbom.sh` (CycloneDX, native + Gradle runtime), SBOM artifact + release asset, `.github/workflows/security.yml` (osv-scanner + gitleaks, scheduled/main, read-only), `.github/dependabot.yml`, `SECURITY.md` SLA/emergency process, `docs/compliance/release-checklist.md`. | `docs/release.md` |
 | #14 lifecycle | `desiredConnectedProfileId` persisted separately from native session; `START_STICKY` restore with fresh native session; bounded backoff + bounded jitter; no boot receiver; force-stop/reboot/other-VPN documented. | ADR-013 |
@@ -429,9 +433,8 @@ Data-flow invariants:
   `noBackupFilesDir/profiles`, credentials separately in `…/credentials`.
 - Transport sockets are protected with `VpnService.protect()`.
 - Native session handles are opaque `jlong`s; `NativeSession.close()` destroys
-  the session. There is a known pre-existing race on `connect()`/stats calls vs
-  close (see §4.5); do not make it worse, and consider a native registry with
-  refcounts if touching this area.
+  the session. Short calls and `close()` now share one handle lock; `connect()`
+  creates the handle outside it by design. See §10.2.
 
 ---
 
@@ -764,9 +767,11 @@ Keep the `Fixes #4, #6, #7` line, but correct the rest:
   (dyn-tls-crypt advertisement gate, server-pushed dyn-tls-crypt rejection,
   strict-compression server-push rejection).
 - 16 KB alignment comes from `-Wl,-z,max-page-size=16384`; do not remove it.
-- Native handle lifetime: `NativeSession.close()` destroys the session; the
-  resume path is locked, but `connect()`/stats reads still have a pre-existing
-  race (see #14). Prefer adding a native registry/refcount if touching this.
+- Native handle lifetime: `NativeSession.close()` destroys the session. The
+  short JNI calls (`resume`/`reconnect`/`disconnect`/stats/`isRunning`) and
+  `close()` now share one lock, so a late call cannot use a freed handle;
+  `connect()` is intentionally outside the lock because it creates the handle.
+  Prefer a native registry/refcount for any further lifetime work.
 
 ### 10.3 Service / platform
 - While Core is paused, the TUN is closed and Android restores the underlying
@@ -786,10 +791,12 @@ Keep the `Fixes #4, #6, #7` line, but correct the rest:
   `serverAuth` EKU. This is documented as a compatibility break — do not
   “fix” it by silently skipping verification; if support wants an escape hatch,
   make it explicit and documented (see ADR-009).
-- Strict trust (ADR-009): a profile needs a CA, `peer-fingerprint` (line or
-  `<peer-fingerprint>` block), or legacy `tls-remote`; otherwise it is rejected
-  at import **and** refused at connect. Do not add an "accept untrusted"
-  setting. Revocation is server/PKI-side; the app has no CRL/OCSP.
+- Strict trust (ADR-009): a profile needs a CA or legacy `tls-remote`; otherwise
+  it is rejected at import **and** refused at connect. A `peer-fingerprint` is
+  recorded and warned about but is **not** an anchor — the pinned mbedTLS core
+  does not enforce pins, so fingerprint-only profiles are rejected with an
+  explicit message. Do not add an "accept untrusted" setting. Revocation is
+  server/PKI-side; the app has no CRL/OCSP.
 
 ### 10.5 Provider compatibility (ADR-005/ADR-010)
 - `compressionMode="asym"` (Compatibility, default) and dropping legacy-only
@@ -819,9 +826,9 @@ explicitly.
   branches in the shared working tree.
 - Confirm the backlog PR is the active work (`gh pr view`, `gh pr checks`) and
   that #8–#21 are addressed as in §4A.
-- `.\gradlew.bat --no-daemon :app:testDebugUnitTest` — expect **225 tests /
-  24 suites / 0 failures** on the backlog branch (110/16 on `main`). Then
-  `:app:lintDebug` (0 errors, 45 warnings) and `assembleDebug`.
+- `.\gradlew.bat --no-daemon :app:testDebugUnitTest` — expect **238 tests /
+  24 suites / 0 failures** on the release-1.4.0 candidate (110/16 on `main`).
+  Then `:app:lintDebug` (0 errors, 45 warnings) and `assembleDebug`.
 - `:app:assembleDebugAndroidTest` must compile (it did on the merge candidate).
 - `:app:externalNativeBuildDebug -Pabis=x86_64` must succeed and the generated
   header must contain all three patches (§3.2).
