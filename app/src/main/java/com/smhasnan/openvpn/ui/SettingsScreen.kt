@@ -431,7 +431,7 @@ fun SettingsScreen(
                     Button(
                         onClick = onRunSelfTest,
                         enabled = selfTest != SelfTestState.Running,
-                        shape = RoundedCornerShape(14.dp),
+                        shape = RoundedCornerShape(50),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = MaterialTheme.colorScheme.secondaryContainer,
                             contentColor = MaterialTheme.colorScheme.onSecondaryContainer,

@@ -109,7 +109,7 @@ private fun ProfileSwitchRow(
         onClick = onClick,
         enabled = enabled,
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(20.dp),
         color = if (selected) {
             scheme.primaryContainer.copy(alpha = 0.45f)
         } else {

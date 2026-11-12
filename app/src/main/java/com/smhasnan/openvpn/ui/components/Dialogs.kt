@@ -70,8 +70,8 @@ data class CredentialPrompt(
     val allowPasswordSave: Boolean = true,
 )
 
-private val DialogShape = RoundedCornerShape(22.dp)
-private val DialogActionShape = RoundedCornerShape(14.dp)
+private val DialogShape = RoundedCornerShape(26.dp)
+private val DialogActionShape = RoundedCornerShape(50)
 
 @Composable
 fun CredentialsDialog(
