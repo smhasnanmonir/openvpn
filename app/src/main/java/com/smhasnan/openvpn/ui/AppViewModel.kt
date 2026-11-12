@@ -28,6 +28,7 @@ import com.smhasnan.openvpn.settings.SplitTunnelMode
 import com.smhasnan.openvpn.ui.components.CredentialPrompt
 import com.smhasnan.openvpn.ui.components.CredentialsInput
 import com.smhasnan.openvpn.vpn.CaptivePortalPolicy
+import com.smhasnan.openvpn.vpn.CredentialHandoff
 import com.smhasnan.openvpn.vpn.LogLevel
 import com.smhasnan.openvpn.vpn.MyVpnService
 import com.smhasnan.openvpn.vpn.NetworkState
