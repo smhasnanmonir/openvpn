@@ -5,54 +5,54 @@ import androidx.compose.ui.graphics.Color
 // ---------------------------------------------------------------------------
 // Brand and hero palette
 //
-// The connection hero keeps the brand identity in both themes: a deep forest
-// gradient with a mint accent. Everything else is neutral so the hero owns the
-// attention.
+// "Playful garden": a vivid spring-green hero with a fresh mint accent, warm
+// amber and coral support tones. The hero owns the attention; everything else
+// stays calm and neutral.
 // ---------------------------------------------------------------------------
 
-val HeroTop = Color(0xFF0A322A)
-val HeroBottom = Color(0xFF0F5A46)
-val HeroAccent = Color(0xFF7BEBC8)
-val HeroText = Color(0xFFF3FBF7)
-val HeroMuted = Color(0xFFA6CFC1)
-val HeroLine = Color(0xFF2A5A4C)
-val HeroDanger = Color(0xFFFF8F84)
+val HeroTop = Color(0xFF0D4034)
+val HeroBottom = Color(0xFF12996B)
+val HeroAccent = Color(0xFF9BF0C7)
+val HeroText = Color(0xFFF4FFF8)
+val HeroMuted = Color(0xFFBCE3CF)
+val HeroLine = Color(0xFF2E6B55)
+val HeroDanger = Color(0xFFFF9F8A)
 
 // ---------------------------------------------------------------------------
 // Light neutrals
 // ---------------------------------------------------------------------------
 
-val Paper = Color(0xFFF4F6F4)
+val Paper = Color(0xFFF7F9F4)
 val Cloud = Color(0xFFFFFFFF)
-val Ink = Color(0xFF10211C)
-val InkMuted = Color(0xFF5A6C65)
-val Line = Color(0xFFE2E9E4)
-val LineStrong = Color(0xFFC9D6CF)
-val Emerald = Color(0xFF0C5B47)
-val EmeraldSoft = Color(0xFFC6EDE0)
-val EmeraldInk = Color(0xFF063B2E)
+val Ink = Color(0xFF11241E)
+val InkMuted = Color(0xFF587268)
+val Line = Color(0xFFE4ECE6)
+val LineStrong = Color(0xFFC8D9CF)
+val Emerald = Color(0xFF0E8F62)
+val EmeraldSoft = Color(0xFFC9F2DE)
+val EmeraldInk = Color(0xFF06402F)
 
 // ---------------------------------------------------------------------------
 // Dark neutrals
 // ---------------------------------------------------------------------------
 
-val Night = Color(0xFF060D0B)
-val NightSurface = Color(0xFF0C1613)
-val NightRaised = Color(0xFF111E1A)
-val NightHigh = Color(0xFF182822)
-val NightLine = Color(0xFF22352E)
-val Mist = Color(0xFFE7F3EE)
-val MistMuted = Color(0xFF9DB5AA)
-val Mint = Color(0xFF7BE7C6)
-val MintInk = Color(0xFF00251B)
-val MintContainer = Color(0xFF0F4A3B)
-val MintOnContainer = Color(0xFFD9F8EC)
+val Night = Color(0xFF071410)
+val NightSurface = Color(0xFF0D1B16)
+val NightRaised = Color(0xFF122119)
+val NightHigh = Color(0xFF192B24)
+val NightLine = Color(0xFF24382E)
+val Mist = Color(0xFFEAF7F0)
+val MistMuted = Color(0xFF9FBBAE)
+val Mint = Color(0xFF7CF0BF)
+val MintInk = Color(0xFF03291C)
+val MintContainer = Color(0xFF10513C)
+val MintOnContainer = Color(0xFFDDFBEC)
 
 // ---------------------------------------------------------------------------
 // Status colors (kept stable; used by badges, log rows and banners)
 // ---------------------------------------------------------------------------
 
-val StatusGreen = Color(0xFF1B8F6B)
+val StatusGreen = Color(0xFF189A6C)
 val StatusGreenLight = Color(0xFF6FE3C0)
 val StatusAmber = Color(0xFF9A5F00)
 val StatusAmberLight = Color(0xFFFFC266)
