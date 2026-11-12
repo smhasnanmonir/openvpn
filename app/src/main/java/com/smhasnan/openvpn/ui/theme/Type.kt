@@ -14,17 +14,17 @@ import androidx.compose.ui.unit.sp
 val AppTypography = Typography(
     displaySmall = TextStyle(
         fontFamily = FontFamily.SansSerif,
-        fontWeight = FontWeight.Bold,
-        fontSize = 38.sp,
-        lineHeight = 42.sp,
-        letterSpacing = (-1).sp,
+        fontWeight = FontWeight.ExtraBold,
+        fontSize = 40.sp,
+        lineHeight = 44.sp,
+        letterSpacing = (-1.25).sp,
     ),
     headlineMedium = TextStyle(
         fontFamily = FontFamily.SansSerif,
-        fontWeight = FontWeight.SemiBold,
-        fontSize = 24.sp,
-        lineHeight = 30.sp,
-        letterSpacing = (-0.4).sp,
+        fontWeight = FontWeight.Bold,
+        fontSize = 25.sp,
+        lineHeight = 31.sp,
+        letterSpacing = (-0.5).sp,
     ),
     headlineSmall = TextStyle(
         fontFamily = FontFamily.SansSerif,
