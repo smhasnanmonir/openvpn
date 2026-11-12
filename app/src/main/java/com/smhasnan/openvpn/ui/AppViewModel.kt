@@ -295,8 +295,16 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun submitChallenge(response: String) {
+        val profileId = VpnController.snapshot.value.profileId
+        if (profileId == null) {
+            VpnController.appendLog(LogLevel.WARN, "No active profile for the challenge response.")
+            return
+        }
         VpnController.appendLog(LogLevel.INFO, "Submitting challenge response")
-        MyVpnService.respondToChallenge(getApplication(), response)
+        // The response can be a one-time code, so it travels in-process like
+        // credentials, never through the service intent (audit finding 3).
+        CredentialHandoff.putResponse(profileId, response)
+        MyVpnService.respondToChallenge(getApplication())
     }
 
     fun onConsentDenied() {
