@@ -4,6 +4,8 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-11-12
+
 ### Security
 
 - **FLAG_SECURE window protection** (`MainActivity`): the Recents thumbnail and
