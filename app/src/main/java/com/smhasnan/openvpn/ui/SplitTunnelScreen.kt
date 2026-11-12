@@ -382,7 +382,7 @@ fun SplitTunnelScreen(
                     )
                     if (connected) {
                         Spacer(Modifier.height(12.dp))
-                        Button(onClick = onReconnect, shape = RoundedCornerShape(14.dp)) {
+                        Button(onClick = onReconnect, shape = RoundedCornerShape(50)) {
                             Text("Reconnect now")
                         }
                     }

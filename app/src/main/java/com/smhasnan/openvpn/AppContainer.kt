@@ -18,7 +18,9 @@ class AppContainer(context: Context) {
     private val appContext = context.applicationContext
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    val settings = SettingsRepository(appContext)
+    // Sensitive setting values (split-tunnel apps, fallback DNS) share the
+    // same Keystore-protected at-rest story as profiles and credentials.
+    val settings = SettingsRepository(appContext, KeystoreSecretBox("settings_store_v1"))
 
     private val profileDirectory = File(appContext.noBackupFilesDir, "profiles")
     private val credentialDirectory = File(appContext.noBackupFilesDir, "credentials")

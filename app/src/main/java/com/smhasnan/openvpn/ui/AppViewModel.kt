@@ -28,6 +28,7 @@ import com.smhasnan.openvpn.settings.SplitTunnelMode
 import com.smhasnan.openvpn.ui.components.CredentialPrompt
 import com.smhasnan.openvpn.ui.components.CredentialsInput
 import com.smhasnan.openvpn.vpn.CaptivePortalPolicy
+import com.smhasnan.openvpn.vpn.CredentialHandoff
 import com.smhasnan.openvpn.vpn.LogLevel
 import com.smhasnan.openvpn.vpn.MyVpnService
 import com.smhasnan.openvpn.vpn.NetworkState
@@ -295,8 +296,16 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun submitChallenge(response: String) {
+        val profileId = VpnController.snapshot.value.profileId
+        if (profileId == null) {
+            VpnController.appendLog(LogLevel.WARN, "No active profile for the challenge response.")
+            return
+        }
         VpnController.appendLog(LogLevel.INFO, "Submitting challenge response")
-        MyVpnService.respondToChallenge(getApplication(), response)
+        // The response can be a one-time code, so it travels in-process like
+        // credentials, never through the service intent (audit finding 3).
+        CredentialHandoff.putResponse(profileId, response)
+        MyVpnService.respondToChallenge(getApplication())
     }
 
     fun onConsentDenied() {

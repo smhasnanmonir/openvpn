@@ -107,7 +107,7 @@ fun ProfilesScreen(
                     Button(
                         onClick = onImport,
                         enabled = !importing,
-                        shape = RoundedCornerShape(14.dp),
+                        shape = RoundedCornerShape(50),
                         contentPadding = PaddingValues(horizontal = 16.dp),
                         modifier = Modifier.height(42.dp),
                     ) {
@@ -139,7 +139,7 @@ fun ProfilesScreen(
             item {
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(14.dp),
+                    shape = RoundedCornerShape(50),
                     color = MaterialTheme.colorScheme.surfaceContainer,
                 ) {
                     Row(

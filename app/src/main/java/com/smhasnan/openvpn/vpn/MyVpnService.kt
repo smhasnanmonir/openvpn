@@ -70,7 +70,6 @@ class MyVpnService : VpnService() {
         const val ACTION_PAUSE_FOR_PORTAL = "com.smhasnan.openvpn.action.PAUSE_FOR_PORTAL"
 
         const val EXTRA_PROFILE_ID = "profile_id"
-        const val EXTRA_CHALLENGE_RESPONSE = "challenge_response"
 
         fun connect(context: Context, profileId: String) {
             val intent = Intent(context, MyVpnService::class.java)
@@ -93,11 +92,15 @@ class MyVpnService : VpnService() {
             )
         }
 
-        fun respondToChallenge(context: Context, response: String) {
+        /**
+         * The response itself travels through [CredentialHandoff], never an
+         * Intent extra: it is often a one-time/2FA code (audit 2026-11-12,
+         * finding 3). The intent only signals that a response is ready.
+         */
+        fun respondToChallenge(context: Context) {
             context.startService(
                 Intent(context, MyVpnService::class.java)
-                    .setAction(ACTION_RESPOND_CHALLENGE)
-                    .putExtra(EXTRA_CHALLENGE_RESPONSE, response),
+                    .setAction(ACTION_RESPOND_CHALLENGE),
             )
         }
     }
@@ -210,7 +213,8 @@ class MyVpnService : VpnService() {
                 return START_NOT_STICKY
             }
             ACTION_RESPOND_CHALLENGE -> {
-                val response = intent.getStringExtra(EXTRA_CHALLENGE_RESPONSE).orEmpty()
+                val profileId = VpnController.snapshot.value.profileId
+                val response = profileId?.let(CredentialHandoff::takeResponse).orEmpty()
                 respondToChallenge(response)
                 return START_NOT_STICKY
             }

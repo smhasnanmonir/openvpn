@@ -13,35 +13,36 @@ import androidx.core.view.WindowCompat
 import com.smhasnan.openvpn.settings.ThemeMode
 
 /**
- * Light theme: warm paper background, white content cards, deep emerald accent.
- * Surfaces carry the layering (there are almost no visible borders), which is
- * what keeps the screens calm instead of a stack of outlined boxes.
+ * Light theme: warm garden background, white content cards, vivid spring-green
+ * primary, warm amber and coral support tones. Surfaces carry the layering
+ * (there are almost no visible borders), which keeps the screens calm instead
+ * of a stack of outlined boxes.
  */
 private val LightColors = lightColorScheme(
     primary = Emerald,
     onPrimary = Color.White,
     primaryContainer = EmeraldSoft,
     onPrimaryContainer = EmeraldInk,
-    secondary = Color(0xFF48645B),
+    secondary = Color(0xFF7C5A12),
     onSecondary = Color.White,
-    secondaryContainer = Color(0xFFDCE9E3),
-    onSecondaryContainer = Color(0xFF10281F),
-    tertiary = Color(0xFF7A5B2E),
+    secondaryContainer = Color(0xFFFFE9C2),
+    onSecondaryContainer = Color(0xFF2E2000),
+    tertiary = Color(0xFFBB4E3B),
     onTertiary = Color.White,
-    tertiaryContainer = Color(0xFFF4E4C6),
-    onTertiaryContainer = Color(0xFF3A2A0F),
+    tertiaryContainer = Color(0xFFFFDAD2),
+    onTertiaryContainer = Color(0xFF3A0B03),
     background = Paper,
     onBackground = Ink,
     surface = Cloud,
     onSurface = Ink,
-    surfaceVariant = Color(0xFFEDF2EE),
+    surfaceVariant = Color(0xFFEEF2EC),
     onSurfaceVariant = InkMuted,
     surfaceTint = Emerald,
     surfaceContainerLowest = Color(0xFFFFFFFF),
-    surfaceContainerLow = Color(0xFFF9FBF9),
-    surfaceContainer = Color(0xFFF1F4F1),
-    surfaceContainerHigh = Color(0xFFEAEFEB),
-    surfaceContainerHighest = Color(0xFFE3E9E4),
+    surfaceContainerLow = Color(0xFFFAFBF8),
+    surfaceContainer = Color(0xFFF2F5EE),
+    surfaceContainerHigh = Color(0xFFEBF0E7),
+    surfaceContainerHighest = Color(0xFFE4E9E0),
     outline = LineStrong,
     outlineVariant = Line,
     error = StatusRed,
@@ -55,23 +56,24 @@ private val LightColors = lightColorScheme(
 )
 
 /**
- * Dark theme: near-black green background with slightly raised panels and a
- * mint accent. Kept low-contrast in the surfaces so the hero card and status
- * colors remain legible focal points.
+ * Dark theme: deep green-black background with raised panels and a fresh mint
+ * accent; amber and coral support tones keep the dark surfaces friendly.
+ * Kept low-contrast in the surfaces so the hero card and status colors remain
+ * legible focal points.
  */
 private val DarkColors = darkColorScheme(
     primary = Mint,
     onPrimary = MintInk,
     primaryContainer = MintContainer,
     onPrimaryContainer = MintOnContainer,
-    secondary = Color(0xFFA9C8BC),
-    onSecondary = Color(0xFF14332A),
-    secondaryContainer = Color(0xFF1E3B32),
-    onSecondaryContainer = Color(0xFFD5E8E0),
-    tertiary = Color(0xFFE3C88C),
-    onTertiary = Color(0xFF3B2C10),
-    tertiaryContainer = Color(0xFF4A3A16),
-    onTertiaryContainer = Color(0xFFF7E4BC),
+    secondary = Color(0xFFECC98F),
+    onSecondary = Color(0xFF3E2D0A),
+    secondaryContainer = Color(0xFF57421F),
+    onSecondaryContainer = Color(0xFFFFE9C2),
+    tertiary = Color(0xFFFFB4A6),
+    onTertiary = Color(0xFF571608),
+    tertiaryContainer = Color(0xFF67291B),
+    onTertiaryContainer = Color(0xFFFFDAD2),
     background = Night,
     onBackground = Mist,
     surface = NightSurface,

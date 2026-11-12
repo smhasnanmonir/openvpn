@@ -306,13 +306,13 @@ private fun ConnectionHero(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(24.dp))
+            .clip(RoundedCornerShape(30.dp))
             .background(
                 Brush.linearGradient(
                     colors = listOf(HeroTop, HeroBottom),
                 ),
             )
-            .padding(20.dp),
+            .padding(22.dp),
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -434,7 +434,7 @@ private fun ConnectionHero(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(Dimens.PrimaryActionHeight),
-                    shape = RoundedCornerShape(16.dp),
+                    shape = RoundedCornerShape(50),
                     colors = if (connected) {
                         ButtonDefaults.buttonColors(
                             containerColor = Color.White.copy(alpha = 0.10f),
@@ -531,7 +531,7 @@ private fun HeroStatusPill(state: VpnState, paused: Boolean) {
 private fun HeroStat(label: String, value: String, modifier: Modifier = Modifier) {
     Column(
         modifier = modifier
-            .clip(RoundedCornerShape(14.dp))
+            .clip(RoundedCornerShape(18.dp))
             .background(Color.White.copy(alpha = 0.08f))
             .padding(horizontal = 12.dp, vertical = 10.dp),
     ) {
@@ -620,7 +620,7 @@ private fun PausedForPortalBanner(
     val scheme = MaterialTheme.colorScheme
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(20.dp),
         color = scheme.errorContainer,
     ) {
         Column(modifier = Modifier.padding(start = 14.dp, top = 12.dp, end = 14.dp, bottom = 6.dp)) {
@@ -661,7 +661,7 @@ private fun PausedForPortalBanner(
                 Spacer(Modifier.width(4.dp))
                 Button(
                     onClick = onResume,
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(50),
                 ) { Text("Resume VPN") }
             }
         }
@@ -886,7 +886,7 @@ private fun PublicIpEmpty(onRefresh: () -> Unit) {
     Spacer(Modifier.height(10.dp))
     Button(
         onClick = onRefresh,
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(50),
         colors = ButtonDefaults.buttonColors(
             containerColor = MaterialTheme.colorScheme.secondaryContainer,
             contentColor = MaterialTheme.colorScheme.onSecondaryContainer,

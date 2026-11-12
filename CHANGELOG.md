@@ -4,6 +4,34 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-11-12
+
+### Security
+
+- **FLAG_SECURE window protection** (`MainActivity`): the Recents thumbnail and
+  screenshots no longer expose server details when the biometric app lock is
+  armed (2026-11-12 audit, finding 1).
+- **Log redaction covers inline credential directives.** `auth-user-pass`,
+  `proxy-user-pass` and `proxy-password` are now redaction markers on both the
+  Kotlin and C++ sides, so credentials quoted in a merge/eval error can no
+  longer reach the diagnostics log or its clipboard export (finding 2).
+- **The static-challenge response travels in-process** through
+  `CredentialHandoff` instead of an intent extra, matching the rule that
+  credentials never cross component boundaries in intents (finding 3).
+- **Split-tunnel app list and fallback DNS are encrypted at rest** with the
+  Keystore-backed `SecretBox` (one-time migration from the old plaintext
+  preferences; corrupt values fail soft to empty) (finding 4).
+- 2026-11-12 code security audit and remaining-work reports added under
+  `docs/security/code-audit-2026-11-12.md` and
+  `docs/remaining-work-audit-2026-11-12.md`.
+
+### UI
+
+- **Visual refresh across every screen**: brighter spring-green palette with
+  warm amber and coral support tones, rounder cards (26dp), pill-shaped
+  buttons, segmented controls and dialogs, an extra-bold session timer, and
+  softer profile avatars. All functional behavior is unchanged.
+
 ### CI
 
 - **Fixed the signed-release gate for build-tools 37.** `apksigner` changed its

@@ -11,17 +11,17 @@ object Dimens {
     val ScreenPadding = 20.dp
 
     /** Padding inside a [com.smhasnan.openvpn.ui.components.SectionCard]. */
-    val CardPadding = 18.dp
+    val CardPadding = 20.dp
 
     /** Gap between major sections on a scrolling screen. */
-    val SectionGap = 22.dp
+    val SectionGap = 24.dp
 
     /** Gap between cards inside one section. */
     val CardGap = 10.dp
 
     /** Corner radius for cards, sheets and hero surfaces. */
-    val CardRadius = 20.dp
+    val CardRadius = 26.dp
 
     /** Standard height for primary actions. */
-    val PrimaryActionHeight = 54.dp
+    val PrimaryActionHeight = 56.dp
 }

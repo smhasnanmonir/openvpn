@@ -99,7 +99,7 @@ fun LockScreen(
                 Spacer(Modifier.height(16.dp))
                 OutlinedButton(
                     onClick = onOpenSecuritySettings,
-                    shape = RoundedCornerShape(14.dp),
+                    shape = RoundedCornerShape(50),
                 ) {
                     Text(
                         "Open security settings",
@@ -114,7 +114,7 @@ fun LockScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(Dimens.PrimaryActionHeight),
-                    shape = RoundedCornerShape(14.dp),
+                    shape = RoundedCornerShape(50),
                 ) {
                     Icon(
                         Icons.Filled.Lock,

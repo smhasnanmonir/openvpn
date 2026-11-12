@@ -3,6 +3,8 @@ package com.smhasnan.openvpn.settings
 import android.content.Context
 import android.content.SharedPreferences
 import androidx.compose.runtime.Immutable
+import androidx.core.content.edit
+import com.smhasnan.openvpn.security.SecretBox
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -102,7 +104,15 @@ data class AppSettings(
     val cipherPolicy: CipherPolicy = CipherPolicy.PROFILE,
 )
 
-class SettingsRepository(context: Context) {
+/**
+ * The split-tunnel package list and the fallback resolvers are privacy-sensitive
+ * metadata; they are stored as [EncryptedSettingCodec] blobs instead of
+ * plaintext preferences. Values written by older builds migrate on first read.
+ */
+class SettingsRepository(
+    context: Context,
+    private val secretBox: SecretBox,
+) {
     private val prefs: SharedPreferences =
         context.getSharedPreferences("settings", Context.MODE_PRIVATE)
 
@@ -125,10 +135,16 @@ class SettingsRepository(context: Context) {
             .putBoolean(KEY_BLOCK_FAMILIES, updated.blockUnusedFamilies)
             .putBoolean(KEY_AUTO_IP, updated.autoCheckIp)
             .putBoolean(KEY_REQUIRE_TUNNEL_DNS, updated.requireTunnelDns)
-            .putString(KEY_FALLBACK_DNS, updated.fallbackDnsServers)
+            .apply { putSensitive(KEY_FALLBACK_DNS, KEY_FALLBACK_DNS_ENC, updated.fallbackDnsServers) }
             .putString(KEY_MTU_MODE, updated.mtuMode.name)
             .putString(KEY_SPLIT_TUNNEL_MODE, updated.splitTunnelMode.name)
-            .putStringSet(KEY_SPLIT_TUNNEL_PACKAGES, updated.splitTunnelPackages.toSet())
+            .apply {
+                putSensitive(
+                    KEY_SPLIT_TUNNEL_PACKAGES,
+                    KEY_SPLIT_TUNNEL_PACKAGES_ENC,
+                    updated.splitTunnelPackages.joinToString("\n"),
+                )
+            }
             .putString(KEY_COMPRESSION_POLICY, updated.compressionPolicy.name)
             .putString(KEY_CIPHER_POLICY, updated.cipherPolicy.name)
             .apply()
@@ -172,13 +188,15 @@ class SettingsRepository(context: Context) {
         blockUnusedFamilies = prefs.getBoolean(KEY_BLOCK_FAMILIES, true),
         autoCheckIp = prefs.getBoolean(KEY_AUTO_IP, true),
         requireTunnelDns = prefs.getBoolean(KEY_REQUIRE_TUNNEL_DNS, true),
-        fallbackDnsServers = prefs.getString(KEY_FALLBACK_DNS, "").orEmpty(),
+        fallbackDnsServers = readSensitive(KEY_FALLBACK_DNS, KEY_FALLBACK_DNS_ENC).orEmpty(),
         mtuMode = enumOrDefault(prefs.getString(KEY_MTU_MODE, null), MtuMode.AUTO),
         splitTunnelMode = enumOrDefault(
             prefs.getString(KEY_SPLIT_TUNNEL_MODE, null),
             SplitTunnelMode.OFF,
         ),
-        splitTunnelPackages = prefs.getStringSet(KEY_SPLIT_TUNNEL_PACKAGES, emptySet())
+        splitTunnelPackages = readSensitive(KEY_SPLIT_TUNNEL_PACKAGES, KEY_SPLIT_TUNNEL_PACKAGES_ENC)
+            ?.split('\n')
+            ?.filter(String::isNotBlank)
             ?.toSet()
             .orEmpty(),
         compressionPolicy = enumOrDefault(
@@ -191,6 +209,33 @@ class SettingsRepository(context: Context) {
         ),
     )
 
+    /**
+     * Reads a privacy-sensitive value from its encrypted key. A value written
+     * by an older build under the plaintext key migrates in place on first
+     * read. Corrupt/undecryptable values fall back to the empty default.
+     */
+    private fun readSensitive(legacyKey: String, encKey: String): String? {
+        EncryptedSettingCodec.decode(secretBox, prefs.getString(encKey, null))?.let { return it }
+        val legacy = prefs.getString(legacyKey, null) ?: return null
+        if (legacy.isNotBlank()) {
+            // Best-effort migration: a transient Keystore failure must not
+            // crash startup; the value stays plaintext until the next update.
+            runCatching {
+                prefs.edit {
+                    putString(encKey, EncryptedSettingCodec.encode(secretBox, legacy))
+                    remove(legacyKey)
+                }
+            }
+        }
+        return legacy.ifBlank { null }
+    }
+
+    /** Writes a sensitive value encrypted and removes any legacy plaintext copy. */
+    private fun SharedPreferences.Editor.putSensitive(legacyKey: String, encKey: String, value: String) {
+        remove(legacyKey)
+        if (value.isBlank()) remove(encKey) else putString(encKey, EncryptedSettingCodec.encode(secretBox, value))
+    }
+
     private inline fun <reified T : Enum<T>> enumOrDefault(raw: String?, fallback: T): T =
         raw?.let { runCatching { enumValueOf<T>(it) }.getOrNull() } ?: fallback
 
@@ -200,10 +245,13 @@ class SettingsRepository(context: Context) {
         const val KEY_BLOCK_FAMILIES = "block_unused_families"
         const val KEY_AUTO_IP = "auto_check_ip"
         const val KEY_REQUIRE_TUNNEL_DNS = "require_tunnel_dns"
+        // Legacy plaintext keys: kept only so readSensitive() can migrate them.
         const val KEY_FALLBACK_DNS = "fallback_dns_servers"
+        const val KEY_SPLIT_TUNNEL_PACKAGES = "split_tunnel_packages"
+        const val KEY_FALLBACK_DNS_ENC = "fallback_dns_servers_enc"
+        const val KEY_SPLIT_TUNNEL_PACKAGES_ENC = "split_tunnel_packages_enc"
         const val KEY_MTU_MODE = "mtu_mode"
         const val KEY_SPLIT_TUNNEL_MODE = "split_tunnel_mode"
-        const val KEY_SPLIT_TUNNEL_PACKAGES = "split_tunnel_packages"
         const val KEY_COMPRESSION_POLICY = "compression_policy"
         const val KEY_CIPHER_POLICY = "cipher_policy"
         const val KEY_SELECTED_PROFILE = "selected_profile"

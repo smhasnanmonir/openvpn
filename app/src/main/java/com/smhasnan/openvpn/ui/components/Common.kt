@@ -38,7 +38,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -117,13 +116,7 @@ fun ProfileAvatar(
         modifier = modifier
             .size(size)
             .clip(CircleShape)
-            .background(
-                Brush.linearGradient(
-                    listOf(scheme.surfaceContainerHigh, scheme.surfaceContainer),
-                    start = Offset.Zero,
-                    end = Offset(160f, 160f),
-                ),
-            )
+            .background(scheme.primaryContainer.copy(alpha = 0.55f))
             .border(if (selected) 2.dp else 1.dp, borderColor, CircleShape),
         contentAlignment = Alignment.Center,
     ) {
@@ -339,7 +332,7 @@ fun LinkRow(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(14.dp))
             .clickable(onClick = onClick)
             .padding(vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -461,7 +454,7 @@ fun <T> SegmentedOptions(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
+            .clip(RoundedCornerShape(50))
             .background(scheme.surfaceContainer)
             .padding(4.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -471,7 +464,7 @@ fun <T> SegmentedOptions(
             Surface(
                 onClick = { onSelect(option) },
                 modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(11.dp),
+                shape = RoundedCornerShape(50),
                 color = if (isSelected) scheme.primary else Color.Transparent,
             ) {
                 Box(
@@ -540,7 +533,7 @@ fun StatTile(
     val scheme = MaterialTheme.colorScheme
     Column(
         modifier = modifier
-            .clip(RoundedCornerShape(14.dp))
+            .clip(RoundedCornerShape(18.dp))
             .background(scheme.surfaceContainer)
             .padding(horizontal = 12.dp, vertical = 11.dp),
     ) {
@@ -608,7 +601,7 @@ fun EmptyState(
         )
         if (actionLabel != null && onAction != null) {
             Spacer(Modifier.height(18.dp))
-            Button(onClick = onAction, shape = RoundedCornerShape(14.dp)) {
+            Button(onClick = onAction, shape = RoundedCornerShape(50)) {
                 Text(actionLabel)
             }
         }
@@ -629,7 +622,7 @@ fun MessageBanner(
     val content = if (isError) scheme.onErrorContainer else scheme.onSecondaryContainer
     Surface(
         modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(18.dp),
         color = container,
     ) {
         Row(

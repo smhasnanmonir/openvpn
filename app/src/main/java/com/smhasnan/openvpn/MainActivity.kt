@@ -4,6 +4,7 @@ import android.content.Intent
 import android.os.Bundle
 import android.os.SystemClock
 import android.provider.Settings
+import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -46,6 +47,16 @@ class MainActivity : FragmentActivity() {
 
         setContent {
             val settings by container.settings.settings.collectAsStateWithLifecycle()
+            // The app lock is a UI gate only; FLAG_SECURE keeps the Recents
+            // thumbnail and screenshots from exposing server details whenever
+            // the gate is armed (audit 2026-11-12, finding 1).
+            LaunchedEffect(settings.biometricLock) {
+                if (settings.biometricLock) {
+                    window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                } else {
+                    window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                }
+            }
             OpenVpnTheme(themeMode = settings.themeMode) {
                 if (locked) {
                     LaunchedEffect(locked) {
