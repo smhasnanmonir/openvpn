@@ -3,6 +3,7 @@ package com.smhasnan.openvpn.settings
 import android.content.Context
 import android.content.SharedPreferences
 import androidx.compose.runtime.Immutable
+import androidx.core.content.edit
 import com.smhasnan.openvpn.security.SecretBox
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -220,10 +221,10 @@ class SettingsRepository(
             // Best-effort migration: a transient Keystore failure must not
             // crash startup; the value stays plaintext until the next update.
             runCatching {
-                prefs.edit()
-                    .putString(encKey, EncryptedSettingCodec.encode(secretBox, legacy))
-                    .remove(legacyKey)
-                    .apply()
+                prefs.edit {
+                    putString(encKey, EncryptedSettingCodec.encode(secretBox, legacy))
+                    remove(legacyKey)
+                }
             }
         }
         return legacy.ifBlank { null }
