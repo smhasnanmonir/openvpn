@@ -54,6 +54,9 @@ std::string lower_ascii(std::string value)
 std::string sanitize_log(const std::string &line)
 {
     const std::string lower = lower_ascii(line);
+    // Must stay in sync with LogSanitizer.markers in
+    // app/src/main/java/com/smhasnan/openvpn/util/LogSanitizer.kt
+    // (audit 2026-11-12, finding 2: both lists change together).
     static const char *const markers[] = {
         "password",
         "passphrase",
@@ -64,6 +67,11 @@ std::string sanitize_log(const std::string &line)
         "auth_token",
         "session_id",
         "session token",
+        // Providers sometimes inline credentials directly after these directives,
+        // and merge/eval errors quote profile text verbatim.
+        "auth-user-pass",
+        "proxy-user-pass",
+        "proxy-password",
     };
     for (const char *marker : markers)
     {

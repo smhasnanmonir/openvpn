@@ -5,6 +5,8 @@ package com.smhasnan.openvpn.util
  * also redacted in C++ before crossing JNI.
  */
 object LogSanitizer {
+    // Must stay in sync with sanitize_log() in app/src/main/cpp/native_bridge.cpp
+    // (audit 2026-11-12, finding 2: both lists change together).
     private val markers = listOf(
         "password",
         "passphrase",
@@ -15,6 +17,11 @@ object LogSanitizer {
         "auth_token",
         "session_id",
         "session token",
+        // Providers sometimes inline credentials directly after these directives,
+        // and merge/eval errors quote profile text verbatim.
+        "auth-user-pass",
+        "proxy-user-pass",
+        "proxy-password",
     )
 
     fun sanitize(line: String): String {
