@@ -79,6 +79,27 @@ func revertDNS(dev string) {
 
 func restoreResolvBackup() error { return nil }
 
+// restoreStaleDNS restores the resolver state left by a crashed helper or a
+// force-killed OpenVPN process. The session's dns-down normally does this; a
+// service restart or `cleanup` uses this path.
+func restoreStaleDNS() {
+	files, _ := filepath.Glob(filepath.Join(StateDir, "dns-macos-*.json"))
+	for _, path := range files {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		var state macDNSState
+		if json.Unmarshal(data, &state) == nil && state.Service != "" {
+			_ = macSetList("-setdnsservers", state.Service, state.Servers)
+			if state.SearchChanged {
+				_ = macSetList("-setsearchdomains", state.Service, state.Search)
+			}
+		}
+		_ = os.Remove(path)
+	}
+}
+
 func macServiceForDevice(dev string) (string, error) {
 	physical := dev
 	if physical == "" || strings.HasPrefix(physical, "utun") || strings.HasPrefix(physical, "tun") || strings.HasPrefix(physical, "ppp") {

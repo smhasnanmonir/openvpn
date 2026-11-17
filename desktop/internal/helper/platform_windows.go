@@ -49,8 +49,9 @@ func dnsUpdownArgs() []string { return nil }
 
 func platformRunArgs(string) []string {
 	// Windows OpenVPN applies pushed DNS through the TAP driver; the built-in
-	// block-outside-dns prevents non-tunnel DNS from leaking.
-	return []string{"--block-outside-dns", "--register-dns"}
+	// block-outside-dns prevents non-tunnel DNS from leaking. Select TAP
+	// explicitly so a Wintun DLL on PATH cannot silently change the DNS path.
+	return []string{"--windows-driver", "tap", "--block-outside-dns", "--register-dns"}
 }
 
 func secureDir(dir string) error {

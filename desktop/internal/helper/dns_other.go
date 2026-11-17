@@ -11,3 +11,5 @@ func applyDNS(string, []string, []string, bool) error {
 func revertDNS(string) {}
 
 func restoreResolvBackup() error { return nil }
+
+func restoreStaleDNS() {}

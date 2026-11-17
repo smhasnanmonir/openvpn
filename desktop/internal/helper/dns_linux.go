@@ -84,6 +84,8 @@ func writeResolvConf(servers, domains []string) error {
 	return os.WriteFile(path, []byte(resolvContent(servers, domains)), st.Mode().Perm())
 }
 
+func restoreStaleDNS() {}
+
 func restoreResolvBackup() error {
 	data, err := os.ReadFile(resolvBackupPath)
 	if err != nil {
