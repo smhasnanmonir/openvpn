@@ -76,8 +76,9 @@ distribution's OpenVPN and does not build the submodule.
 - Android: [`android/docs/security.md`](android/docs/security.md),
   [`android/SECURITY.md`](android/SECURITY.md), and the readiness/leak-test
   material under [`android/docs/security/`](android/docs/security/).
-- Desktop: [`desktop/SECURITY.md`](desktop/SECURITY.md) and
-  [`desktop/docs/architecture.md`](desktop/docs/architecture.md).
+- Desktop: [`desktop/SECURITY.md`](desktop/SECURITY.md),
+  [`desktop/docs/architecture.md`](desktop/docs/architecture.md), and the
+  [`code signing policy`](CODE_SIGNING.md).
 
 Report vulnerabilities privately as described in
 [`android/SECURITY.md`](android/SECURITY.md) (the repository-wide policy) or via
