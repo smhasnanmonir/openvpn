@@ -16,6 +16,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 FETCH = ROOT / "scripts/fetch-openvpn-msi.sh"
 BUNDLE = ROOT / "internal/helper/openvpn_bundle.go"
+ENGINE = ROOT / "internal/ovpn/engine.go"
 
 
 def script_pins() -> dict[str, str]:
@@ -50,11 +51,18 @@ def main() -> int:
             f"  helper:       {have}"
         )
 
+    match = re.search(r'bundledEngine\s*=\s*"([^"]+)"', ENGINE.read_text())
+    if not match:
+        raise SystemExit(f"{ENGINE}: bundledEngine not found")
+    ev = match.group(1)
+
     sv, gv = script_version(), go_version()
     if not sv or not gv:
         raise SystemExit("could not read the bundled OpenVPN version")
     if sv != gv:
         raise SystemExit(f"OpenVPN version differs: fetch script {sv}, helper {gv}")
+    if sv != ev:
+        raise SystemExit(f"OpenVPN version differs: fetch script {sv}, ovpn engine label {ev}")
 
     for arch, digest in sorted(wanted.items()):
         print(f"OpenVPN {sv} {arch}: {digest}")

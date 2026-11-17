@@ -47,6 +47,7 @@ type App struct {
 	password    string
 	confirm     string
 	unlockError string
+	remember    bool
 
 	tab        int
 	toast      string
@@ -111,6 +112,7 @@ func New(vaultPath, dataDir string, helper ovpn.HelperInfo, autoConnect ...bool)
 	if len(autoConnect) > 0 {
 		a.autoConnectFlag = autoConnect[0]
 	}
+	a.remember = vault.RememberSupported()
 	if !vault.Exists(vaultPath) {
 		a.creating = true
 	} else if pass := os.Getenv("OPENVPN_DESKTOP_PASSPHRASE"); pass != "" {
@@ -118,6 +120,13 @@ func New(vaultPath, dataDir string, helper ovpn.HelperInfo, autoConnect ...bool)
 			a.attach(v)
 		} else {
 			a.unlockError = err.Error()
+		}
+	} else if pass := vault.LoadRemembered(vaultPath); pass != "" {
+		// A saved password that no longer opens the vault (restored backup,
+		// changed password) falls through to the unlock form instead of
+		// blocking the app on an error the user cannot act on.
+		if v, err := vault.Open(vaultPath, pass); err == nil {
+			a.attach(v)
 		}
 	}
 	return a
@@ -202,31 +211,57 @@ func (a *App) attach(v *vault.Vault) {
 
 func (a *App) submitUnlock() {
 	a.unlockError = ""
+	pass := a.password
 	if a.creating {
-		if len(a.password) < 8 {
+		if len(pass) < 8 {
 			a.unlockError = "Use at least 8 characters for the master password."
 			return
 		}
-		if a.password != a.confirm {
+		if pass != a.confirm {
 			a.unlockError = "The two passwords do not match."
 			return
 		}
-		v, err := vault.Create(a.vaultPath, a.password)
+		v, err := vault.Create(a.vaultPath, pass)
 		if err != nil {
 			a.unlockError = err.Error()
 			return
 		}
+		a.rememberPassword(pass)
 		a.attach(v)
 		a.setToast("Vault created. Import a .ovpn profile to begin.")
 		a.tab = 1
 		return
 	}
-	v, err := vault.Open(a.vaultPath, a.password)
+	v, err := vault.Open(a.vaultPath, pass)
 	if err != nil {
 		a.unlockError = err.Error()
 		return
 	}
+	a.rememberPassword(pass)
 	a.attach(v)
+}
+
+// rememberPassword keeps the master password in the system credential store
+// when the user asked for it, so the next launch opens without a prompt.
+func (a *App) rememberPassword(pass string) {
+	if !vault.RememberSupported() {
+		return
+	}
+	if a.remember {
+		_ = vault.SaveRemembered(a.vaultPath, pass)
+		return
+	}
+	_ = vault.ClearRemembered(a.vaultPath)
+}
+
+// ForgetRemembered stops opening the vault without a password.
+func (a *App) ForgetRemembered() {
+	if err := vault.ClearRemembered(a.vaultPath); err != nil {
+		a.setToast(err.Error())
+		return
+	}
+	a.remember = false
+	a.setToast("Saved password removed. The next launch asks for it.")
 }
 
 func (a *App) lock() {
@@ -258,6 +293,16 @@ func (a *App) activeToast() string {
 func (a *App) connect() {
 	if a.svc == nil {
 		return
+	}
+	// One administrator prompt, on the first connect, instead of asking the
+	// user to find a Settings button first.
+	if !a.helper.Available && a.helper.InstallAvailable {
+		a.InstallHelper()
+		if !a.helper.Available {
+			a.tab = 0
+			a.setToast("Connecting needs administrator approval once. " + a.helper.Detail)
+			return
+		}
 	}
 	snap := a.svc.Snapshot()
 	profiles := a.svc.Profiles()
