@@ -1,6 +1,44 @@
 {
   "name": "OpenVPN Desktop",
+  "slug": "openvpn-desktop",
   "identifier": "com.smhasnanmonir.openvpndesktop",
   "version": "1.0.0",
-  "out": "build"
+  "copyright": "© 2026 smhasnanmonir",
+  "publisher": "smhasnanmonir",
+  "license": "AGPL-3.0-only",
+  "out": "build",
+  "updates": {
+    "publicKey": "1gpI4UJF0CszuroQBX/HIaoVtilV0d7Cjyi08CI2WKA=",
+    "github": "smhasnanmonir/openvpn",
+    "tagPrefix": "desktop-v"
+  },
+  "windows": {
+    "displayName": "OpenVPN Desktop",
+    "installerInclude": "packaging/installer.nsh"
+  },
+  "macos": {
+    "minimumSystemVersion": "13.0"
+  },
+  "linux": {
+    "comment": "OpenVPN client with a native UI and a privileged helper",
+    "categories": [
+      "Network"
+    ],
+    "webview": false,
+    "depends": {
+      "deb": [
+        "openvpn",
+        "nftables"
+      ],
+      "rpm": [
+        "openvpn",
+        "nftables"
+      ],
+      "arch": [
+        "openvpn",
+        "nftables"
+      ]
+    },
+    "command": "openvpn-desktop"
+  }
 }

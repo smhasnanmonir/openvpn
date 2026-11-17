@@ -17,7 +17,7 @@ jobs:
   test:
     name: Test, vet, build, package
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     defaults:
       run:
         working-directory: desktop
@@ -43,6 +43,14 @@ jobs:
       - name: Unit tests
         run: go test ./... -count=1
 
+      - name: Race tests
+        run: go test -race ./... -count=1
+
+      - name: Vulnerability scan
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          "$(go env GOPATH)/bin/govulncheck" ./...
+
       - name: Build
         run: go build ./...
 
@@ -52,8 +60,23 @@ jobs:
           GOOS=darwin GOARCH=arm64 go build ./...
           GOOS=linux GOARCH=arm64 go build ./...
 
+      - name: Build bundled helpers and SBOM
+        run: |
+          ./scripts/build-helpers.sh
+          python3 scripts/gen-sbom.py -o build/sbom.cdx.json
+
       - name: Package with MyGo
         run: go tool mygo build
+
+      - name: Verify Linux packages carry the helper
+        run: |
+          set -e
+          for deb in build/linux-amd64/*.deb; do
+            dpkg-deb -c "$deb" | grep -F 'openvpn-desktop-helper' >/dev/null
+          done
+          for tar in build/linux-amd64/*.tar.gz; do
+            tar tzf "$tar" | grep -F 'openvpn-desktop-helper' >/dev/null
+          done
 
       - name: Upload Linux artifacts
         uses: actions/upload-artifact@v7
@@ -61,9 +84,72 @@ jobs:
           name: desktop-linux-amd64
           path: |
             desktop/build/linux-amd64/openvpn-desktop
-            desktop/build/linux-amd64/openvpn-desktop-1.0.0-linux-amd64.tar.gz
-            desktop/build/linux-amd64/openvpn-desktop_1.0.0_amd64.deb
+            desktop/build/linux-amd64/openvpn-desktop-*-linux-amd64.tar.gz
+            desktop/build/linux-amd64/openvpn-desktop_*_amd64.deb
+            desktop/build/linux-amd64/openvpn-desktop-helper
+            desktop/build/sbom.cdx.json
           if-no-files-found: error
+
+  platform:
+    name: Build and test on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: windows/amd64
+            skip: -skip-installer
+          - os: macos-14
+            platform: darwin/arm64
+            skip: -skip-dmg
+    defaults:
+      run:
+        working-directory: desktop
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.27.x"
+          cache: true
+          cache-dependency-path: desktop/go.sum
+
+      - name: Vet and test
+        run: |
+          go vet ./...
+          go test ./... -count=1
+          go build ./...
+
+      - name: Build bundled helpers
+        run: ./scripts/build-helpers.sh
+
+      - name: Validate the Windows installer script
+        if: runner.os == 'Windows'
+        shell: pwsh
+        working-directory: desktop
+        run: |
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path scripts/install-windows-service.ps1), [ref]$null, [ref]$errors
+          ) | Out-Null
+          if ($errors) { $errors; exit 1 }
+
+      - name: Package on the platform
+        run: go tool mygo build -platform "${{ matrix.platform }}" ${{ matrix.skip }}
+
+      - name: Verify the helper is bundled
+        run: |
+          set -e
+          if [[ "${{ matrix.platform }}" == windows/* ]]; then
+            test -f "build/windows-amd64/openvpn-desktop-helper.exe"
+          else
+            test -f "build/darwin-arm64/OpenVPN Desktop.app/Contents/Resources/openvpn-desktop-helper"
+          fi
 
   # The live tunnel test is intentionally not a CI job: it needs root,
   # /dev/net/tun and two network namespaces. Run it manually with

@@ -1,0 +1,315 @@
+name: Desktop release
+
+on:
+  push:
+    tags: ["desktop-v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version without the desktop-v prefix"
+        required: true
+        default: "1.0.0"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: desktop-release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  GO_VERSION: "1.27.x"
+  TAG: ${{ github.ref_type == 'tag' && github.ref_name || format('desktop-v{0}', inputs.version) }}
+  VERSION: ${{ github.ref_type == 'tag' && github.ref_name || format('desktop-v{0}', inputs.version) }}
+
+jobs:
+  linux:
+    name: Linux packages and SBOM
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: desktop
+        shell: bash
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      MYGO_UPDATER_PRIVATE_KEY: ${{ secrets.MYGO_UPDATER_PRIVATE_KEY }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "${{ env.GO_VERSION }}"
+          cache: true
+          cache-dependency-path: desktop/go.sum
+      - name: Install native UI runtime headers
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libgtk-3-dev
+      - name: Set release version
+        run: python3 scripts/set-version.py "$TAG"
+      - name: Require update signing key for a tag
+        if: github.ref_type == 'tag'
+        run: test -n "$MYGO_UPDATER_PRIVATE_KEY" || { echo "::error::set MYGO_UPDATER_PRIVATE_KEY"; exit 1; }
+      - name: Vet and test (race)
+        run: |
+          go vet ./...
+          go test -race ./... -count=1
+          go build ./...
+      - name: Vulnerability scan
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          "$(go env GOPATH)/bin/govulncheck" ./...
+      - name: Build bundled helpers and SBOM
+        run: |
+          ./scripts/build-helpers.sh
+          python3 scripts/gen-sbom.py -o build/sbom.cdx.json
+      - name: Build Linux packages
+        run: go tool mygo build -platform linux/amd64,linux/arm64
+      - name: Verify packages carry the helper
+        run: |
+          set -e
+          for deb in build/linux-*/*.deb; do
+            dpkg-deb -c "$deb" | grep -F 'openvpn-desktop-helper' >/dev/null
+          done
+          for tar in build/linux-*/*.tar.gz; do
+            tar tzf "$tar" | grep -F 'openvpn-desktop-helper' >/dev/null
+          done
+          test -f build/linux-amd64/update-linux-amd64.json
+          test -f build/linux-arm64/update-linux-arm64.json
+      - uses: actions/upload-artifact@v7
+        with:
+          name: desktop-linux
+          path: |
+            desktop/build/linux-amd64
+            desktop/build/linux-arm64
+            desktop/build/sbom.cdx.json
+          if-no-files-found: error
+
+  windows:
+    name: Windows installer
+    runs-on: windows-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: desktop
+        shell: bash
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      MYGO_UPDATER_PRIVATE_KEY: ${{ secrets.MYGO_UPDATER_PRIVATE_KEY }}
+      WINDOWS_CERT_PFX_BASE64: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
+      MYGO_WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "${{ env.GO_VERSION }}"
+          cache: true
+          cache-dependency-path: desktop/go.sum
+      - name: Set release version
+        run: python3 scripts/set-version.py "$TAG"
+      - name: Require signing key and certificate for a tag
+        if: github.ref_type == 'tag'
+        run: |
+          test -n "$MYGO_UPDATER_PRIVATE_KEY" || { echo "::error::set MYGO_UPDATER_PRIVATE_KEY"; exit 1; }
+          test -n "$WINDOWS_CERT_PFX_BASE64" || { echo "::error::set WINDOWS_CERT_PFX_BASE64"; exit 1; }
+          test -n "$MYGO_WINDOWS_CERTIFICATE_PASSWORD" || { echo "::error::set WINDOWS_CERT_PASSWORD"; exit 1; }
+      - name: Import the Authenticode certificate
+        if: env.WINDOWS_CERT_PFX_BASE64 != ''
+        run: |
+          python3 - <<'PY'
+          import base64, json, os, pathlib
+          pathlib.Path("packaging").mkdir(exist_ok=True)
+          pathlib.Path("packaging/windows.pfx").write_bytes(base64.b64decode(os.environ["WINDOWS_CERT_PFX_BASE64"]))
+          cfg = json.loads(pathlib.Path("mygo.json").read_text())
+          cfg.setdefault("windows", {})["certificate"] = "packaging/windows.pfx"
+          pathlib.Path("mygo.json").write_text(json.dumps(cfg, indent=2, ensure_ascii=False) + "\n")
+          PY
+      - name: Vet, test and build
+        run: |
+          go vet ./...
+          go test ./... -count=1
+          go build ./...
+      - name: Build bundled helpers
+        run: ./scripts/build-helpers.sh
+      - name: Validate the Windows installer script
+        shell: pwsh
+        working-directory: desktop
+        run: |
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path scripts/install-windows-service.ps1), [ref]$null, [ref]$errors
+          ) | Out-Null
+          if ($errors) { $errors; exit 1 }
+      - name: Build Windows app and installer
+        run: go tool mygo build -platform windows/amd64
+      - name: Verify the installer and bundled helper
+        run: |
+          set -e
+          ls build/windows-amd64/*-setup-*.exe
+          test -f build/windows-amd64/openvpn-desktop-helper.exe
+          test -f build/windows-amd64/OpenVPN\ Desktop.exe
+          test -f build/windows-amd64/update-windows-amd64.json
+      - name: Smoke-test the real Windows service
+        shell: pwsh
+        working-directory: desktop
+        run: ./scripts/test-windows-service.ps1
+      - uses: actions/upload-artifact@v7
+        with:
+          name: desktop-windows
+          path: desktop/build/windows-amd64
+          if-no-files-found: error
+
+  macos:
+    name: macOS app, dmg and notarization
+    runs-on: macos-14
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: desktop
+        shell: bash
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      MYGO_UPDATER_PRIVATE_KEY: ${{ secrets.MYGO_UPDATER_PRIVATE_KEY }}
+      MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+      MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+      MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+      MACOS_NOTARY_APPLE_ID: ${{ secrets.MACOS_NOTARY_APPLE_ID }}
+      MACOS_NOTARY_TEAM_ID: ${{ secrets.MACOS_NOTARY_TEAM_ID }}
+      MACOS_NOTARY_PASSWORD: ${{ secrets.MACOS_NOTARY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "${{ env.GO_VERSION }}"
+          cache: true
+          cache-dependency-path: desktop/go.sum
+      - name: Set release version
+        run: python3 scripts/set-version.py "$TAG"
+      - name: Require signing and notarization secrets for a tag
+        if: github.ref_type == 'tag'
+        run: |
+          test -n "$MYGO_UPDATER_PRIVATE_KEY" || { echo "::error::set MYGO_UPDATER_PRIVATE_KEY"; exit 1; }
+          test -n "$MACOS_CERT_P12_BASE64" || { echo "::error::set MACOS_CERT_P12_BASE64"; exit 1; }
+          test -n "$MACOS_SIGNING_IDENTITY" || { echo "::error::set MACOS_SIGNING_IDENTITY"; exit 1; }
+          test -n "$MACOS_NOTARY_APPLE_ID" || { echo "::error::set MACOS_NOTARY_APPLE_ID"; exit 1; }
+          test -n "$MACOS_NOTARY_TEAM_ID" || { echo "::error::set MACOS_NOTARY_TEAM_ID"; exit 1; }
+          test -n "$MACOS_NOTARY_PASSWORD" || { echo "::error::set MACOS_NOTARY_PASSWORD"; exit 1; }
+      - name: Import Developer ID certificate and notary credentials
+        if: env.MACOS_CERT_P12_BASE64 != ''
+        run: |
+          set -euo pipefail
+          KEYCHAIN="$RUNNER_TEMP/app-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 32)"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          echo "$MACOS_CERT_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN" -P "$MACOS_CERT_PASSWORD" \
+            -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          security default-keychain -s "$KEYCHAIN"
+          xcrun notarytool store-credentials openvpn-desktop \
+            --apple-id "$MACOS_NOTARY_APPLE_ID" \
+            --team-id "$MACOS_NOTARY_TEAM_ID" \
+            --password "$MACOS_NOTARY_PASSWORD" \
+            --keychain "$KEYCHAIN"
+          python3 - <<'PY'
+          import json, os, pathlib
+          cfg = json.loads(pathlib.Path("mygo.json").read_text())
+          cfg.setdefault("macos", {})["notarize"] = {
+              "keychainProfile": "openvpn-desktop",
+              "keychain": os.environ["RUNNER_TEMP"] + "/app-signing.keychain-db",
+          }
+          pathlib.Path("mygo.json").write_text(json.dumps(cfg, indent=2, ensure_ascii=False) + "\n")
+          PY
+      - name: Vet, test and build
+        run: |
+          go vet ./...
+          go test ./... -count=1
+          go build ./...
+      - name: Build bundled helpers
+        run: ./scripts/build-helpers.sh
+      - name: Build macOS app and disk image
+        run: |
+          ARGS=(-platform darwin/universal)
+          if [[ -n "$MACOS_SIGNING_IDENTITY" ]]; then
+            ARGS+=(-sign "$MACOS_SIGNING_IDENTITY")
+          fi
+          go tool mygo build "${ARGS[@]}"
+      - name: Verify the app and bundled helper
+        run: |
+          set -e
+          test -d "build/darwin-universal/OpenVPN Desktop.app"
+          test -f "build/darwin-universal/OpenVPN Desktop.app/Contents/Resources/openvpn-desktop-helper"
+          test -f build/darwin-universal/update-darwin-universal.json
+          ls build/darwin-universal/*.dmg
+      - name: Install OpenVPN for the service smoke test
+        run: brew install openvpn && brew link --force openvpn
+      - name: Smoke-test the real launchd helper
+        run: sudo ./scripts/test-macos-service.sh
+      - name: Remove the temporary keychain
+        if: always() && env.MACOS_CERT_P12_BASE64 != ''
+        run: security delete-keychain "$RUNNER_TEMP/app-signing.keychain-db" || true
+      - uses: actions/upload-artifact@v7
+        with:
+          name: desktop-macos
+          path: desktop/build/darwin-universal
+          if-no-files-found: error
+
+  release:
+    name: Draft GitHub release
+    if: github.ref_type == 'tag'
+    needs: [linux, windows, macos]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v7
+        with:
+          path: dist
+      - name: Assemble a deterministic asset set
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+          while IFS= read -r -d '' f; do
+            base="$(basename "$f")"
+            case "$base" in
+              *.tar.gz|*.deb|*.rpm|*.dmg|*-setup-*.exe|update-*.json|*.delta|install.ps1|PKGBUILD|openvpn-desktop-helper.exe|sbom.cdx.json)
+                cp "$f" "release-assets/$base"
+                ;;
+              install.sh)
+                # Linux and macOS installers differ; keep both names.
+                if [[ "$f" == *"/desktop-linux/"* ]]; then
+                  cp "$f" release-assets/install.sh
+                else
+                  cp "$f" release-assets/install-macos.sh
+                fi
+                ;;
+            esac
+          done < <(find dist -type f -print0)
+          # The Linux release branch is the canonical install.sh.
+          if [[ -f release-assets/install-macos.sh && ! -f release-assets/install.sh ]]; then
+            mv release-assets/install-macos.sh release-assets/install.sh
+          fi
+          (cd release-assets && find . -maxdepth 1 -type f ! -name SHA256SUMS -print0 | sort -z | \
+            xargs -0 sha256sum | sed 's#  \./#  #') > release-assets/SHA256SUMS
+          python3 desktop/scripts/release-notes.py "${VERSION#desktop-v}" > notes.md
+          ls -l release-assets
+          cat notes.md
+      - name: Create draft release and upload assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            prerelease=""
+            if [[ "${VERSION#desktop-v}" == *-* ]]; then
+              prerelease="--prerelease"
+            fi
+            gh release create "$TAG" \
+              --draft \
+              --latest=false \
+              $prerelease \
+              --title "OpenVPN Desktop ${VERSION#desktop-v}" \
+              --notes-file notes.md
+          fi
+          find release-assets -maxdepth 1 -type f -print0 | xargs -0 -r gh release upload "$TAG" --clobber

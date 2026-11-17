@@ -18,6 +18,7 @@ if [[ -x "$HELPER" ]]; then
 fi
 rm -f "$HELPER" \
       "${PREFIX}/libexec/openvpn-desktop/privilege-mode" \
+      "${PREFIX}/libexec/openvpn-desktop/helper.version" \
       "$POLKIT_FILE" \
       "$SUDOERS_FILE"
 rmdir "${PREFIX}/libexec/openvpn-desktop" 2>/dev/null || true

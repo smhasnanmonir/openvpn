@@ -37,7 +37,6 @@ need() {
     exit 1
   }
 }
-need go
 need openvpn
 
 # Never install a helper that loads a user-writable OpenVPN binary.
@@ -63,14 +62,29 @@ case "$MODE" in
     ;;
 esac
 
-echo "==> building the helper"
 cd "$ROOT"
-export PATH="${PATH}:/usr/local/go/bin"
-export GOTOOLCHAIN="${GOTOOLCHAIN:-local}"
-mkdir -p "$LIBEXEC"
-GOFLAGS="${GOFLAGS:-}" go build -trimpath -ldflags "-s -w" -o "${HELPER}.tmp" ./cmd/openvpn-desktop-helper
-install -m 0755 "${HELPER}.tmp" "$HELPER"
-rm -f "${HELPER}.tmp"
+ARCH="$(uname -m)"
+case "$ARCH" in
+  x86_64|amd64) ARCH=amd64 ;;
+  aarch64|arm64) ARCH=arm64 ;;
+esac
+VERSION="$(python3 -c 'import json; print(json.load(open("mygo.json"))["version"])' 2>/dev/null || echo 1.0.0)"
+LDFLAGS="-s -w -X github.com/smhasnanmonir/openvpn/desktop/internal/helper.Version=${VERSION}"
+HELPER_SOURCE="resources/linux-${ARCH}/openvpn-desktop-helper"
+if [[ -x "$HELPER_SOURCE" ]]; then
+  echo "==> installing the prebuilt helper $HELPER_SOURCE"
+  mkdir -p "$LIBEXEC"
+  install -m 0755 "$HELPER_SOURCE" "$HELPER"
+else
+  echo "==> building the helper"
+  need go
+  export PATH="${PATH}:/usr/local/go/bin"
+  export GOTOOLCHAIN="${GOTOOLCHAIN:-local}"
+  mkdir -p "$LIBEXEC"
+  GOFLAGS="${GOFLAGS:-}" go build -trimpath -ldflags "$LDFLAGS" -o "${HELPER}.tmp" ./cmd/openvpn-desktop-helper
+  install -m 0755 "${HELPER}.tmp" "$HELPER"
+  rm -f "${HELPER}.tmp"
+fi
 
 case "$MODE" in
   polkit)
@@ -130,6 +144,8 @@ case "$MODE" in
   setuid) echo "setuid" > "${LIBEXEC}/privilege-mode" ;;
 esac
 chmod 0444 "${LIBEXEC}/privilege-mode"
+printf '%s\n' "$VERSION" > "${LIBEXEC}/helper.version"
+chmod 0644 "${LIBEXEC}/helper.version"
 
 echo "==> verifying the helper"
 "$HELPER" doctor

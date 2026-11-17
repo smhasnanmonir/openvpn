@@ -1,34 +1,33 @@
 #!/usr/bin/env bash
 # Install (or remove) the OpenVPN Desktop privileged helper daemon on macOS.
 #
-# The helper runs as root under launchd, listens on a token-authenticated
-# loopback endpoint, and launches OpenVPN. The GUI reads a per-user token file.
+# The GUI's "Install privileged helper" button runs the same helper command
+# through osascript; this script is the terminal/package fallback.
 #
-# Requirements: macOS, OpenVPN 2.7+ (Homebrew or official), Go 1.27+ to build,
-# and an administrator account.
+# Requirements: macOS, OpenVPN 2.7+ (Homebrew or official), and an
+# administrator account. A prebuilt helper may be passed with --helper;
+# otherwise the script builds it (Go 1.27+ required).
 set -euo pipefail
+
+LABEL="com.smhasnanmonir.openvpndesktop.helper"
+HELPER="/Library/PrivilegedHelperTools/${LABEL}"
+USER_NAME="${SUDO_USER:-${USER}}"
+USER_HOME="$(dscl . -read "/Users/${USER_NAME}" NFSHomeDirectory 2>/dev/null | awk '{print $2}')"
+USER_CONFIG="${USER_HOME}/Library/Application Support/openvpn-desktop/service.json"
 
 if [[ ${EUID:-$(id -u)} -ne 0 ]]; then
   echo "install-macos-service.sh: run with sudo" >&2
   exit 1
 fi
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-LABEL="com.smhasnanmonir.openvpndesktop.helper"
-HELPER="/Library/PrivilegedHelperTools/${LABEL}"
-SYSTEM_DIR="/Library/Application Support/OpenVPN Desktop"
-SYSTEM_CONFIG="${SYSTEM_DIR}/service.json"
-PLIST="/Library/LaunchDaemons/${LABEL}.plist"
-LISTEN="127.0.0.1:51940"
-USER_NAME="${SUDO_USER:-${USER}}"
-USER_HOME="$(dscl . -read "/Users/${USER_NAME}" NFSHomeDirectory | awk '{print $2}')"
-USER_DIR="${USER_HOME}/Library/Application Support/openvpn-desktop"
-USER_CONFIG="${USER_DIR}/service.json"
-
 if [[ ${1:-} == "--uninstall" ]]; then
+  if [[ -x "${HELPER}" ]]; then
+    "${HELPER}" uninstall-service --purge --user-config "${USER_CONFIG}" || true
+  fi
   launchctl bootout "system/${LABEL}" 2>/dev/null || true
-  rm -f "${PLIST}" "${HELPER}" "${SYSTEM_CONFIG}" "${USER_CONFIG}"
-  rmdir "${SYSTEM_DIR}" 2>/dev/null || true
+  rm -f "/Library/LaunchDaemons/${LABEL}.plist" "${HELPER}" \
+    "/Library/Application Support/OpenVPN Desktop/service.json" "${USER_CONFIG}"
+  rmdir "/Library/Application Support/OpenVPN Desktop" 2>/dev/null || true
   echo "Removed ${LABEL} and its configuration."
   exit 0
 fi
@@ -38,75 +37,43 @@ if [[ -z "${USER_HOME}" || ! -d "${USER_HOME}" ]]; then
   exit 1
 fi
 
-echo "==> building the helper"
-export PATH="${PATH}:/usr/local/go/bin:/opt/homebrew/bin"
-export GOTOOLCHAIN="${GOTOOLCHAIN:-local}"
-mkdir -p "${ROOT}/bin"
-go build -trimpath -o "${ROOT}/bin/openvpn-desktop-helper" ./cmd/openvpn-desktop-helper
-
-echo "==> installing ${HELPER}"
-install -d -m 0755 /Library/PrivilegedHelperTools
-install -m 0755 "${ROOT}/bin/openvpn-desktop-helper" "${HELPER}"
-
-# Check OpenVPN. Homebrew binaries are user-owned; the helper accepts them only
-# when they are not group/world writable (documented residual trust). A
-# root-owned install is preferred.
-OPENVPN=""
-for candidate in /usr/local/sbin/openvpn /opt/homebrew/sbin/openvpn /usr/local/bin/openvpn /opt/homebrew/bin/openvpn; do
-  if [[ -x "${candidate}" ]]; then
-    OPENVPN="${candidate}"
-    break
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+HELPER_SOURCE=""
+ARGS=("$@")
+for ((i = 0; i < ${#ARGS[@]}; i++)); do
+  if [[ "${ARGS[i]}" == "--helper" && $((i + 1)) -lt ${#ARGS[@]} ]]; then
+    HELPER_SOURCE="${ARGS[i + 1]}"
   fi
 done
-if [[ -z "${OPENVPN}" ]]; then
-  echo "warning: OpenVPN 2.7+ was not found; install it before connecting" >&2
-else
-  owner="$(stat -f '%Su' "${OPENVPN}")"
-  echo "==> using OpenVPN: ${OPENVPN} (owner ${owner})"
+
+if [[ -z "${HELPER_SOURCE}" ]]; then
+  echo "==> building the helper"
+  export PATH="${PATH}:/usr/local/go/bin:/opt/homebrew/bin"
+  export GOTOOLCHAIN="${GOTOOLCHAIN:-local}"
+  mkdir -p "${ROOT}/bin"
+  VERSION="$(cd "${ROOT}" && python3 -c 'import json; print(json.load(open("mygo.json"))["version"])' 2>/dev/null || echo 1.0.0)"
+  (
+    cd "${ROOT}"
+    go build -trimpath -ldflags "-s -w -X github.com/smhasnanmonir/openvpn/desktop/internal/helper.Version=${VERSION}" \
+      -o "bin/openvpn-desktop-helper" ./cmd/openvpn-desktop-helper
+  )
+  HELPER_SOURCE="${ROOT}/bin/openvpn-desktop-helper"
+fi
+if [[ ! -x "${HELPER_SOURCE}" ]]; then
+  echo "install-macos-service.sh: helper not found at ${HELPER_SOURCE}" >&2
+  exit 1
 fi
 
-echo "==> writing the service token"
-TOKEN="$(openssl rand -hex 32)"
-mkdir -p "${SYSTEM_DIR}" "${USER_DIR}"
-printf '{"addr":"%s","token":"%s"}\n' "${LISTEN}" "${TOKEN}" > "${SYSTEM_CONFIG}"
-chmod 0600 "${SYSTEM_CONFIG}"
-chown root:wheel "${SYSTEM_CONFIG}"
-
-printf '{"addr":"%s","token":"%s"}\n' "${LISTEN}" "${TOKEN}" > "${USER_CONFIG}"
-chmod 0600 "${USER_CONFIG}"
-chown "${USER_NAME}" "${USER_CONFIG}"
-
-echo "==> installing the launchd daemon"
-cat > "${PLIST}" <<EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key><string>${LABEL}</string>
-  <key>ProgramArguments</key>
-  <array>
-    <string>${HELPER}</string>
-    <string>serve</string>
-    <string>--config</string>
-    <string>${SYSTEM_CONFIG}</string>
-  </array>
-  <key>RunAtLoad</key><true/>
-  <key>KeepAlive</key><true/>
-  <key>ProcessType</key><string>Interactive</string>
-</dict>
-</plist>
-EOF
-chmod 0644 "${PLIST}"
-chown root:wheel "${PLIST}"
-
-launchctl bootout "system/${LABEL}" 2>/dev/null || true
-launchctl bootstrap system "${PLIST}"
-launchctl enable "system/${LABEL}"
+echo "==> installing the helper (this also makes a root-owned OpenVPN copy)"
+"${HELPER_SOURCE}" install-service \
+  --helper "${HELPER_SOURCE}" \
+  --user-config "${USER_CONFIG}" \
+  --user "${USER_NAME}"
 
 echo
 echo "Installed ${LABEL}."
 echo "  helper: ${HELPER}"
-echo "  config: ${SYSTEM_CONFIG} (root only)"
+echo "  config: /Library/Application Support/OpenVPN Desktop/service.json (root only)"
 echo "  token:  ${USER_CONFIG} (${USER_NAME} only)"
 echo "Restart OpenVPN Desktop, then connect. Remove with:"
 echo "  sudo $0 --uninstall"

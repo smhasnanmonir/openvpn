@@ -31,6 +31,10 @@ $SystemDir = Join-Path $env:ProgramData "OpenVPN Desktop"
 $SystemConfig = Join-Path $SystemDir "service.json"
 $UserDir = Join-Path $env:APPDATA "openvpn-desktop"
 $UserConfig = Join-Path $UserDir "service.json"
+# Well-known SIDs: SYSTEM and the local Administrators group. Names are
+# localized on many Windows installs, SIDs are not.
+$SystemSid = "*S-1-5-18"
+$AdminSid = "*S-1-5-32-544"
 
 function Remove-ServiceIfPresent {
   sc.exe stop $ServiceName 2>$null | Out-Null
@@ -42,6 +46,9 @@ function Remove-ServiceIfPresent {
 
 if ($Uninstall) {
   Remove-ServiceIfPresent
+  if (Test-Path $InstalledHelper) {
+    & $InstalledHelper uninstall-service --purge --user-config $UserConfig
+  }
   Remove-Item -Force -ErrorAction SilentlyContinue $SystemConfig, $UserConfig
   Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $InstallDir, $SystemDir, $UserDir
   Write-Host "OpenVPN Desktop helper service removed."
@@ -69,19 +76,23 @@ if (-not $openvpn) {
 New-Item -ItemType Directory -Force -Path $InstallDir, $SystemDir, $UserDir | Out-Null
 Copy-Item -Force $HelperPath $InstalledHelper
 
-$token = ([guid]::NewGuid().ToString("N")) + ([guid]::NewGuid().ToString("N"))
-$config = @{ addr = $Listen; token = $token } | ConvertTo-Json -Compress
-Set-Content -Path $SystemConfig -Value $config -Encoding ASCII
-icacls $SystemConfig /inheritance:r /grant:r "SYSTEM:(F)" "Administrators:(F)" | Out-Null
-Set-Content -Path $UserConfig -Value $config -Encoding ASCII
-$user = "$env:USERDOMAIN\$env:USERNAME"
-icacls $UserConfig /inheritance:r /grant:r "${user}:(F)" "SYSTEM:(F)" | Out-Null
-
-Remove-ServiceIfPresent
-& $InstalledHelper install-service $SystemConfig
+# The helper writes the token files, copies itself into Program Files and
+# creates/upgrades the service. Running it directly keeps one install path for
+# the script, CI and the GUI's Install privileged helper button.
+& $InstalledHelper install-service --helper $InstalledHelper --user-config $UserConfig
 if ($LASTEXITCODE -ne 0) {
   throw "the helper failed to install the service (exit $LASTEXITCODE)"
 }
+if (-not (Test-Path $SystemConfig) -or -not (Test-Path $UserConfig)) {
+  throw "the helper did not write the service token files"
+}
+# Protect the token files and their directories, using SIDs so the ACLs work
+# on every Windows display language.
+icacls $SystemDir /inheritance:r /grant:r "${SystemSid}:(OI)(CI)(F)" "${AdminSid}:(OI)(CI)(F)" | Out-Null
+icacls $SystemConfig /inheritance:r /grant:r "${SystemSid}:(F)" "${AdminSid}:(F)" | Out-Null
+$user = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+icacls $UserDir /inheritance:r /grant:r "${user}:(OI)(CI)(F)" "${SystemSid}:(OI)(CI)(F)" | Out-Null
+icacls $UserConfig /inheritance:r /grant:r "${user}:(F)" "${SystemSid}:(F)" | Out-Null
 
 Write-Host ""
 Write-Host "Installed OpenVPN Desktop helper service."
