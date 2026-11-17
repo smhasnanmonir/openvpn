@@ -42,10 +42,14 @@ func TestFindServiceHelperMissing(t *testing.T) {
 }
 
 func TestFindHelperUsesServiceEndpointEnv(t *testing.T) {
+	token, err := serviceproto.NewToken()
+	if err != nil {
+		t.Fatal(err)
+	}
 	t.Setenv("OPENVPN_DESKTOP_SERVICE_ADDR", "127.0.0.1:59999")
-	t.Setenv("OPENVPN_DESKTOP_SERVICE_TOKEN", "0123456789abcdef0123456789abcdef")
+	t.Setenv("OPENVPN_DESKTOP_SERVICE_TOKEN", token)
 	info := FindHelper(".")
-	if !info.Available || info.Mode != PrivilegeService || info.ServiceAddr != "127.0.0.1:59999" {
+	if !info.Available || info.Mode != PrivilegeService || info.ServiceAddr != "127.0.0.1:59999" || info.ServiceToken != token {
 		t.Fatalf("info = %+v", info)
 	}
 }
