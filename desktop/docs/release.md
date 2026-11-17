@@ -37,7 +37,7 @@ Do not publish a stable release until all of these are true.
 - [ ] Upgrade, uninstall and reboot tests pass on Windows and macOS.
 - [ ] Windows GUI, helper, installer and installed uninstaller are
       Authenticode-signed and timestamped (SignPath Foundation or a local
-      certificate):
+      certificate), or the release is explicitly announced as unsigned:
       ```powershell
       Get-AuthenticodeSignature "$env:LOCALAPPDATA\Programs\OpenVPN Desktop\Uninstall.exe"
       ```
@@ -62,19 +62,20 @@ Do not publish a stable release until all of these are true.
 
 Configure these in **Settings → Secrets and variables → Actions**.
 
-Windows signing uses **SignPath Foundation** by default; a local `.pfx` is the
-optional fallback. See [`signpath.md`](signpath.md).
+Windows Authenticode signing is **optional**: SignPath Foundation when
+`SIGNPATH_API_TOKEN` is set, otherwise a local `.pfx`, otherwise the release
+publishes unsigned. See [`signpath.md`](signpath.md).
 
 | Secret / variable | Purpose |
 |---|---|
 | `MYGO_UPDATER_PRIVATE_KEY` | Contents of `mygo-update.key`; signs update manifests and archives. Required for a tag. |
-| `SIGNPATH_API_TOKEN` | SignPath API token; a tag needs this or the local certificate. |
+| `SIGNPATH_API_TOKEN` | SignPath API token. Optional; without it and the local certificate the Windows build is unsigned. |
 | `SIGNPATH_ORGANIZATION_ID` | SignPath organization ID (Actions variable). |
 | `SIGNPATH_PROJECT_SLUG` | SignPath project slug (Actions variable). |
 | `SIGNPATH_SIGNING_POLICY_SLUG` | `release-signing` (or `test-signing`). |
 | `SIGNPATH_APP_ARTIFACT_CONFIGURATION_SLUG` | `windows-app` (default). |
 | `SIGNPATH_INSTALLER_ARTIFACT_CONFIGURATION_SLUG` | `windows-installer` (default). |
-| `WINDOWS_CERT_PFX_BASE64` | Optional local `.pfx` fallback. |
+| `WINDOWS_CERT_PFX_BASE64` | Optional local `.pfx` fallback, used only when SignPath is not configured. |
 | `WINDOWS_CERT_PASSWORD` | Password for the optional `.pfx`. |
 | `MACOS_CERT_P12_BASE64` | Base64 Developer ID Application `.p12`. Required for a tag. |
 | `MACOS_CERT_PASSWORD` | Password for the `.p12`. |

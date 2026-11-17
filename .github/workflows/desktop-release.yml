@@ -116,10 +116,14 @@ jobs:
         run: |
           python3 scripts/set-version.py "$TAG"
           echo "RELEASE_VERSION=${TAG#desktop-v}" >> "$GITHUB_ENV"
-      - name: Require release signing credentials for a tag
+      - name: Check release secrets for a tag
         if: github.ref_type == 'tag'
         run: |
           test -n "$MYGO_UPDATER_PRIVATE_KEY" || { echo "::error::set MYGO_UPDATER_PRIVATE_KEY"; exit 1; }
+          # Authenticode signing is optional. The release still builds and
+          # publishes without it; users see an unknown publisher in SmartScreen
+          # and UAC. Auto-updates do not depend on it: they are verified with
+          # the Ed25519 update key above.
           if [[ -n "$SIGNPATH_API_TOKEN" ]]; then
             for name in SIGNPATH_ORGANIZATION_ID SIGNPATH_PROJECT_SLUG SIGNPATH_SIGNING_POLICY_SLUG; do
               test -n "${!name}" || { echo "::error::set $name"; exit 1; }
@@ -131,8 +135,7 @@ jobs:
           elif [[ -n "$WINDOWS_CERT_PFX_BASE64" ]]; then
             test -n "$MYGO_WINDOWS_CERTIFICATE_PASSWORD" || { echo "::error::set WINDOWS_CERT_PASSWORD"; exit 1; }
           else
-            echo "::error::set SignPath credentials or WINDOWS_CERT_PFX_BASE64"
-            exit 1
+            echo "::warning title=Unsigned Windows release::Set SIGNPATH_API_TOKEN or WINDOWS_CERT_PFX_BASE64 to sign Windows binaries. This release is unsigned."
           fi
       - name: Check the SignPath configuration
         if: env.SIGNPATH_API_TOKEN != ''
@@ -369,7 +372,7 @@ jobs:
           }
           Write-Host "installer -> $($sig.Status) $($sig.SignerCertificate.Subject)"
 
-      - name: Build Windows app and installer with the local certificate
+      - name: Build Windows app and installer
         if: env.SIGNPATH_API_TOKEN == ''
         run: go tool mygo build -platform windows/amd64
       - name: Verify the installer and bundled helper

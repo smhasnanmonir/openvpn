@@ -125,9 +125,9 @@ go tool mygo dev
 ```
 
 Release flow, signing secrets and the platform verification checklist:
-[`docs/release.md`](docs/release.md). Windows releases use free
-[SignPath Foundation signing](docs/signpath.md); the
-[`code signing policy`](../CODE_SIGNING.md) lists what is signed.
+[`docs/release.md`](docs/release.md). Windows binaries can optionally be signed
+with free [SignPath Foundation signing](docs/signpath.md); the
+[`code signing policy`](../CODE_SIGNING.md) lists what would be signed.
 
 The packages contain the GUI **and** the platform helper. On first connect,
 open **Settings → Privileged helper** and press **Install privileged helper**.
