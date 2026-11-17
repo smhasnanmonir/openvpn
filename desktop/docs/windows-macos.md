@@ -9,10 +9,10 @@ streams its logs over a token-authenticated loopback connection.
 > one-click installers and packages are verified on Linux
 > (`TestLiveTunnelService` uses the real `helper serve` process and a real
 > OpenVPN tunnel; the Windows NSIS installer and macOS `.app` build with the
-> helper bundled). The Windows service wrapper, macOS launchd daemon and their
-> installers build/test but a real Windows/macOS tunnel has **not** been run
-> from this Linux host. Use the checklists below on each platform; the device
-> test, code signing and notarization remain release gates.
+> helper bundled). The real Windows service and macOS launchd install/uninstall
+> smoke tests passed on GitHub-hosted runners. A real Windows/macOS **tunnel**,
+> DNS behavior, reboot/upgrade, code signing and notarization still require
+> those devices. Use the checklists below; they remain release gates.
 
 ## Architecture
 

@@ -109,6 +109,24 @@ and macOS launchd/DNS code cross-compile; their installers and device checklist
 are in [`windows-macos.md`](windows-macos.md). A real Windows/macOS tunnel,
 code signing and notarization still require those machines.
 
+### Hosted Windows/macOS installer smoke tests (2026-11-17)
+
+The release workflow was dry-run on GitHub-hosted runners (unsigned, no VPN):
+
+- **Windows:** `openvpn-desktop-setup-1.0.0-amd64.exe` built with the NSIS
+  helper hook; `test-windows-service.ps1` installed the real
+  `OpenVPNDesktopHelper` LocalSystem service, verified it was Running and wrote
+  the per-user token, then stopped and removed it.
+- **macOS:** the universal app and `.dmg` built with the helper in
+  `Contents/Resources`; `test-macos-service.sh` installed the launchd daemon
+  and root-owned OpenVPN copy, verified `launchctl print`, and removed it.
+- **Linux:** race tests, `govulncheck`, SBOM, `.deb`/`.rpm`/tarball with the
+  helper, and the helper-in-package checks passed.
+
+This verifies the real Windows service and macOS launchd install/uninstall
+paths on those operating systems. It does **not** verify a tunnel, DNS behavior,
+reboot/upgrade, or code signing.
+
 ### Packaging evidence (2026-11-17, Linux host)
 
 ```
@@ -283,8 +301,9 @@ Run on a real desktop with a real provider (or the local live-test server):
   runs in a namespace and exercises cgroup/nft/policy routing, not every
   desktop resolver), Wi-Fi↔cellular changes, and apps with several child
   processes/wrapper scripts.
-- Real Windows and macOS tunnels, their service installers, DNS behavior,
-  upgrade/reboot/uninstall, code signing/notarization. Use the checklists in
+- Real Windows and macOS tunnels, DNS behavior, upgrade/reboot behavior,
+  code signing/notarization. The service installers themselves were
+  smoke-tested on hosted runners. Use the checklists in
   [`windows-macos.md`](windows-macos.md); the shared service core and packaging
   are verified on Linux but the platform wrappers have not run on those devices
   from this host.
