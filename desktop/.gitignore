@@ -1,0 +1,16 @@
+/build/
+/.mygo/
+mygo_windows_*.syso
+
+# Cross-compiled helper binaries bundled into release apps
+resources/*/openvpn-desktop-helper
+resources/*/openvpn-desktop-helper.exe
+.keys/
+mygo-update.key
+mygo-update.pub
+packaging/*.pfx
+packaging/*.p12
+packaging/*.pem
+resources/*/helper.version
+__pycache__/
+*.pyc

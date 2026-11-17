@@ -1,3 +1,3 @@
-[submodule "third_party/openvpn3"]
-	path = third_party/openvpn3
+[submodule "android/third_party/openvpn3"]
+	path = android/third_party/openvpn3
 	url = https://github.com/OpenVPN/openvpn3.git
