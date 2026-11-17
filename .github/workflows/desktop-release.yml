@@ -273,9 +273,10 @@ jobs:
               throw "$name is not validly signed: $($sig.Status)"
             }
           }
-          "SIGNPATH_SIGNED_APP=$signed\OpenVPN Desktop.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "SIGNPATH_SIGNED_HELPER=$signed\openvpn-desktop-helper.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "SIGNPATH_SIGNED_UNINSTALLER=$signed\Uninstall.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          $utf8 = New-Object System.Text.UTF8Encoding($false)
+          [IO.File]::AppendAllText($env:GITHUB_ENV, "SIGNPATH_SIGNED_APP=$signed\OpenVPN Desktop.exe`n", $utf8)
+          [IO.File]::AppendAllText($env:GITHUB_ENV, "SIGNPATH_SIGNED_HELPER=$signed\openvpn-desktop-helper.exe`n", $utf8)
+          [IO.File]::AppendAllText($env:GITHUB_ENV, "SIGNPATH_SIGNED_UNINSTALLER=$signed\Uninstall.exe`n", $utf8)
 
       - name: Configure MyGo to inject the signed files
         if: env.SIGNPATH_API_TOKEN != ''
