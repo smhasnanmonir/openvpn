@@ -33,16 +33,27 @@ The license text for each module is in its module directory under
 
 ## OpenVPN
 
-OpenVPN Desktop is a client; it does **not** bundle the OpenVPN program. It
-executes an OpenVPN 2.7+ binary installed by the user:
+OpenVPN Desktop is a client, not a fork of OpenVPN.
 
-- Linux: a root-owned `openvpn` from the system package manager.
+- Linux: it runs a root-owned `openvpn` from the system package manager.
 - macOS: the installer copies the installed OpenVPN binary to a root-owned
   location; it remains governed by its own license (GPLv2 for OpenVPN 2.x).
-- Windows: the OpenVPN Community installer's `openvpn.exe` in Program Files.
+- Windows: the package ships the official OpenVPN installer
+  (`OpenVPN-2.7.1-I001-amd64.msi`, likewise `arm64`) as
+  `openvpn-installer.msi`, fetched from
+  <https://swupdate.openvpn.net/community/releases/> by
+  `scripts/fetch-openvpn-msi.sh` and pinned by SHA-256. The elevated helper
+  verifies that digest and runs it silently, so a Windows user does not install
+  OpenVPN separately.
 
-If you redistribute OpenVPN itself with this app, comply with its GPLv2 terms
-and include its source or a written offer as required.
+OpenVPN is Copyright (C) OpenVPN Inc. and contributors, licensed under the GNU
+General Public License version 2. On Windows it is redistributed unmodified as
+a separate program (mere aggregation): it is not linked with this application
+and is not a derivative work of it. Corresponding source for the bundled build
+is available from <https://github.com/OpenVPN/openvpn/releases> and
+<https://github.com/OpenVPN/tap-windows6/releases> for at least three years
+after this release, or on request. The installer's own license files are
+installed under `C:\Program Files\OpenVPN`.
 
 ## Trademark
 

@@ -161,6 +161,9 @@ jobs:
           go build ./...
       - name: Build bundled helpers
         run: ./scripts/build-helpers.sh
+
+      - name: Fetch the bundled OpenVPN installer
+        run: ./scripts/fetch-openvpn-msi.sh
       - name: Validate the Windows installer script
         shell: pwsh
         working-directory: desktop

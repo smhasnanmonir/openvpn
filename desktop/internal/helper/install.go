@@ -52,8 +52,17 @@ func installCommand(args []string, uninstall bool) int {
 	}
 	if uninstall {
 		fmt.Println("removed the OpenVPN Desktop privileged helper")
-	} else {
-		fmt.Println("installed the OpenVPN Desktop privileged helper")
+		return 0
+	}
+	fmt.Println("installed the OpenVPN Desktop privileged helper")
+	// A Windows machine without an OpenVPN engine cannot connect, so install
+	// the bundled one here, while the process already has administrator
+	// rights. This is best effort: the helper is usable either way and the app
+	// reports a missing engine when it connects.
+	if msg, err := ensureOpenVPNAvailable(); err != nil {
+		fmt.Fprintln(os.Stderr, "openvpn-desktop-helper: warning:", err)
+	} else if msg != "" {
+		fmt.Println(msg)
 	}
 	return 0
 }

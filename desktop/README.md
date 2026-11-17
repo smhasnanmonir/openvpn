@@ -75,7 +75,8 @@ where OpenVPN runs as a privileged system process.
 - **Linux:** production target; per-app split tunneling, nftables kill switch,
   XDG start-at-login, root helper, live-tunnel verified. Packages include the
   helper and can install it through the GUI's polkit prompt.
-- **Windows:** LocalSystem helper service, TAP-Windows6/OpenVPN 2.7+, start at
+- **Windows:** LocalSystem helper service, bundled OpenVPN 2.7.1 with
+  TAP-Windows6 (installed during helper setup), start at
   login, tray/captive portal/public IP, route-based split; per-app/kill switch
   are Linux-only. The NSIS installer includes the helper and starts the service
   with UAC; the GUI offers the same install if it was skipped. Real-device
@@ -95,8 +96,11 @@ Windows/macOS details, requirements and verification checklists:
 
 - Linux, Windows 10/11 or macOS 13+.
 - **OpenVPN 2.7+.** Linux: root-owned and not group/world writable. Windows:
-  the standard installer with TAP-Windows6 (required for pushed DNS). macOS:
-  Homebrew or official; the installer copies it into a root-owned location.
+  none needed up front. The helper install runs the bundled official OpenVPN
+  2.7.1 installer, which also installs the TAP-Windows6 driver required for
+  pushed DNS; an existing `C:\Program Files\OpenVPN` installation is reused.
+  macOS: Homebrew or official; the installer copies it into a root-owned
+  location.
 - Go 1.27+ to build from source; the release installers do not need Go.
 - Linux: `nft` for the kill switch (optional), `resolvectl` or `resolvconf` for
   DNS (or a writable `/etc/resolv.conf`), and `pkexec` (polkit) or `sudo`.
@@ -296,7 +300,7 @@ Full threat model, cryptographic details, limitations and reporting:
 |---|---|
 | “The privileged helper is not ready” | Run `sudo ./scripts/install-helper.sh` (or `polkit`/`sudo` explicitly), then restart the app. Check `openvpn-desktop-helper doctor`. |
 | `pkexec` prompt does not appear | No polkit agent in the session. Use `sudo ./scripts/install-helper.sh sudo`, or install a polkit authentication agent. |
-| Windows helper service not ready | Run the PowerShell installer as administrator; check `Get-Service OpenVPNDesktopHelper`; install OpenVPN 2.7+ with TAP-Windows6. See `docs/windows-macos.md`. |
+| Windows helper service not ready | Run the PowerShell installer as administrator; check `Get-Service OpenVPNDesktopHelper`. The helper install also installs the bundled OpenVPN 2.7.1 with TAP-Windows6; if that step failed, run `openvpn-desktop-helper.exe install-service` again from the app folder. See `docs/windows-macos.md`. |
 | macOS helper service not ready | Run `sudo ./scripts/install-macos-service.sh`; check `launchctl print system/com.smhasnanmonir.openvpndesktop.helper`; install OpenVPN 2.7+. |
 | Per-app split will not start | It needs Linux cgroup v2 (`/sys/fs/cgroup/cgroup.controllers`), `nft`, `ip`, a non-VPN default route and the privileged helper. The connection is aborted rather than silently ignoring the setting. |
 | A newly started app uses the wrong path for a moment | The monitor scans once per second; there is a short window. Select the real executable (`/proc/PID/exe`), not a wrapper script. |

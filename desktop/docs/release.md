@@ -24,7 +24,7 @@ Windows and macOS ship the helper next to the app / in `Contents/Resources`.
 Do not publish a stable release until all of these are true.
 
 - [ ] `desktop/scripts/check.sh` passes (vet, tests, race, build, packages,
-      helper-in-package checks).
+      helper-in-package, bundled-OpenVPN pin and signing-config checks).
 - [ ] `sudo ./scripts/test-live-tunnel.sh` passes: `TestLiveTunnel` and
       `TestLiveTunnelService`.
 - [ ] `sudo ./scripts/test-per-app-split.sh` passes both include and exclude.
