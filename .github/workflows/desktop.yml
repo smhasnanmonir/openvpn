@@ -101,7 +101,7 @@ jobs:
           - os: windows-latest
             platform: windows/amd64
             skip: -skip-installer
-          - os: macos-14
+          - os: macos-latest
             platform: darwin/arm64
             skip: -skip-dmg
     defaults:

@@ -3,6 +3,7 @@ package serviceinstall
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/smhasnanmonir/openvpn/desktop/internal/serviceproto"
@@ -30,7 +31,7 @@ func TestNormalizeAndCopy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if st.Mode().Perm() != 0o700 {
+	if runtime.GOOS != "windows" && st.Mode().Perm() != 0o700 {
 		t.Fatalf("mode = %o", st.Mode().Perm())
 	}
 	data, _ := os.ReadFile(dst)

@@ -3,6 +3,7 @@ package helper
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -43,8 +44,8 @@ func TestParseRunPerApp(t *testing.T) {
 		"--management", "127.0.0.1:7505",
 		"--management-password-file", "/tmp/pass",
 		"--per-app-mode", "exclude",
-		"--per-app-exec", "/usr/bin/firefox",
-		"--per-app-exec", "/opt/app/bin/app",
+		"--per-app-exec", filepath.Join(t.TempDir(), "firefox"),
+		"--per-app-exec", filepath.Join(t.TempDir(), "app"),
 	}
 	opt, err := parseRun(args)
 	if err != nil {
@@ -155,7 +156,9 @@ func TestReadBoundedRegularRejectsSymlinkAndWritable(t *testing.T) {
 	if err := os.Chmod(writable, 0o666); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := readBoundedRegular(writable, 1<<20); err == nil {
-		t.Fatal("a group/world-writable file must be rejected")
+	if runtime.GOOS != "windows" {
+		if _, err := readBoundedRegular(writable, 1<<20); err == nil {
+			t.Fatal("a group/world-writable file must be rejected")
+		}
 	}
 }

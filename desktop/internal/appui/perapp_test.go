@@ -3,6 +3,7 @@ package appui
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/smhasnanmonir/openvpn/desktop/internal/ovpn"
@@ -12,6 +13,9 @@ import (
 )
 
 func TestPerAppSelectionSaves(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("per-app split tunneling is Linux-only")
+	}
 	dir := t.TempDir()
 	path := filepath.Join(dir, "vault.ovpnx")
 	v, err := vault.Create(path, "test-password-123")

@@ -85,8 +85,12 @@ func (c Config) Validate() error {
 	return nil
 }
 
-// UserPath is the per-user endpoint/token file read by the GUI.
+// UserPath is the per-user endpoint/token file read by the GUI. Tests and
+// portable installs may override it with OPENVPN_DESKTOP_USER_CONFIG.
 func UserPath() (string, error) {
+	if p := os.Getenv("OPENVPN_DESKTOP_USER_CONFIG"); p != "" {
+		return p, nil
+	}
 	dir, err := os.UserConfigDir()
 	if err != nil {
 		return "", err

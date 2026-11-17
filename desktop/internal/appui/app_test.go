@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -81,7 +82,7 @@ func TestCreateVaultThroughViewAndShowTabs(t *testing.T) {
 	if !tt.HasText("Require tunnel DNS") {
 		t.Fatalf("settings not rendered; texts: %v", tt.Texts())
 	}
-	if !tt.HasText("Kill switch (nftables)") {
+	if runtime.GOOS == "linux" && !tt.HasText("Kill switch (nftables)") {
 		t.Fatalf("kill-switch setting missing; texts: %v", tt.Texts())
 	}
 

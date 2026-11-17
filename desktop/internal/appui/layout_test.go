@@ -2,6 +2,7 @@ package appui
 
 import (
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
@@ -63,10 +64,11 @@ func TestContentIsInsideTheViewport(t *testing.T) {
 	}
 	tt.Frame()
 	assertVisible("Require tunnel DNS")
-	if !tt.HasText("Kill switch (nftables)") ||
-		!tt.HasText("Captive portal") ||
+	if !tt.HasText("Captive portal") ||
 		!tt.HasText("Start at login: not installed") ||
-		!tt.HasText("Per-app split tunneling (Linux)") {
+		!tt.HasText("Per-app split tunneling (Linux)") ||
+		(runtime.GOOS == "linux" && !tt.HasText("Kill switch (nftables)")) ||
+		(runtime.GOOS != "linux" && !tt.HasText("nftables kill switch is implemented for Linux only")) {
 		t.Fatalf("new settings missing; texts: %v", tt.Texts())
 	}
 

@@ -3,6 +3,7 @@ package ovpn
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/smhasnanmonir/openvpn/desktop/internal/serviceproto"
@@ -10,11 +11,8 @@ import (
 
 func TestFindServiceHelper(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", dir)
-	path, err := serviceproto.UserPath()
-	if err != nil {
-		t.Fatal(err)
-	}
+	path := filepath.Join(dir, "service.json")
+	t.Setenv("OPENVPN_DESKTOP_USER_CONFIG", path)
 	token, err := serviceproto.NewToken()
 	if err != nil {
 		t.Fatal(err)
@@ -33,7 +31,7 @@ func TestFindServiceHelper(t *testing.T) {
 
 func TestFindServiceHelperMissing(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("OPENVPN_DESKTOP_USER_CONFIG", filepath.Join(dir, "service.json"))
 	info := findServiceHelper(".")
 	if info.Available {
 		t.Fatalf("a missing service config was accepted: %+v", info)
@@ -53,6 +51,9 @@ func TestFindHelperUsesServiceEndpointEnv(t *testing.T) {
 }
 
 func TestServiceUserPathUnderConfig(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("XDG_CONFIG_HOME is Linux-specific; Windows and macOS use their own config directories")
+	}
 	dir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", dir)
 	p, err := serviceproto.UserPath()
