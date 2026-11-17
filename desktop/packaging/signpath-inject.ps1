@@ -35,6 +35,9 @@ switch -Wildcard ($name) {
   "openvpn-desktop-setup-*.exe" {
     # Signed by SignPath after the complete installer exists.
   }
+  "*.dll" {
+    # Resources such as DLLs are not part of the SignPath request.
+  }
   default {
     # NSIS passes the generated uninstaller as a temporary file whose name is
     # not necessarily Uninstall.exe (makensis uses a random temporary name).

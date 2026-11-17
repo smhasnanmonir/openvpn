@@ -18,8 +18,8 @@
 | Live tunnel | **PASS**: local OpenVPN 2.7 server in a server netns, client in a client netns; TLS 1.3, cert auth, `CONNECTED`, IP `10.8.0.2`, ping through tunnel, counters, redacted logs, clean disconnect (`scripts/test-live-tunnel.sh`) |
 | Parity additions | System tray + minimize-to-tray, captive-portal probe/pause/sign-in/reconnect, start-at-login (XDG/Run key/LaunchAgent) + auto-connect after unlock (no stored password), Linux per-app split tunneling (cgroup v2 + nftables/policy routing, include/exclude, new-process monitor, DNS resolver pinning), Windows service + macOS launchd helper with token-authenticated loopback jobs, one-click helper install, signed `desktop-v*` updates |
 | Headless launch | Xvfb + openbox creates the 1120×800 `"OpenVPN Desktop"` window; MyGo's GL surface makes raw screenshots unreliable, so the viewport test is authoritative |
-| Not done | Independent pen test/audit; real Windows/macOS tunnel and DNS, reboot/upgrade tests; live code signing/notarization with production certificates |
-| Next action | Run `docs/windows-macos.md` on real Windows/macOS, attach certificates/secrets, publish `desktop-v1.0.0` draft, then external audit (`docs/release.md`) |
+| Not done | Independent pen test/audit; real Windows/macOS tunnel and DNS, reboot/upgrade tests; SignPath Foundation application/certificate and live production signing (workflow and post-build injection are implemented) |
+| Next action | Apply to SignPath Foundation, configure the SignPath project/secrets (`docs/signpath.md`), run `docs/windows-macos.md` on real Windows/macOS, publish `desktop-v1.0.0` draft, then external audit (`docs/release.md`) |
 
 ## Non-negotiable security invariants
 

@@ -2,6 +2,7 @@ name: Desktop release
 
 on:
   push:
+    branches: ["feat/desktop-production"]
     tags: ["desktop-v*"]
   workflow_dispatch:
     inputs:
@@ -124,6 +125,10 @@ jobs:
             for name in SIGNPATH_ORGANIZATION_ID SIGNPATH_PROJECT_SLUG SIGNPATH_SIGNING_POLICY_SLUG; do
               test -n "${!name}" || { echo "::error::set $name"; exit 1; }
             done
+            test "$SIGNPATH_SIGNING_POLICY_SLUG" = "release-signing" || {
+              echo "::error::a release tag must use the release-signing policy, not $SIGNPATH_SIGNING_POLICY_SLUG"
+              exit 1
+            }
           elif [[ -n "$WINDOWS_CERT_PFX_BASE64" ]]; then
             test -n "$MYGO_WINDOWS_CERTIFICATE_PASSWORD" || { echo "::error::set WINDOWS_CERT_PASSWORD"; exit 1; }
           else
@@ -159,13 +164,17 @@ jobs:
         working-directory: desktop
         run: |
           $errors = $null
-          foreach ($script in @("scripts/install-windows-service.ps1", "packaging/signpath-inject.ps1")) {
+          foreach ($script in @("scripts/install-windows-service.ps1", "packaging/signpath-inject.ps1", "scripts/test-signpath-inject.ps1")) {
             $errors = $null
             [System.Management.Automation.Language.Parser]::ParseFile(
               (Resolve-Path $script), [ref]$null, [ref]$errors
             ) | Out-Null
             if ($errors) { $errors; exit 1 }
           }
+      - name: Test the SignPath injection hook
+        shell: pwsh
+        working-directory: desktop
+        run: ./scripts/test-signpath-inject.ps1
       - name: Validate the SignPath signing configuration
         run: python3 scripts/check-signing-config.py
 
