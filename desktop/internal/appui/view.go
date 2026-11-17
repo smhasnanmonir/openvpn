@@ -13,8 +13,10 @@ import (
 	"github.com/smhasnanmonir/openvpn/desktop/internal/app"
 	"github.com/smhasnanmonir/openvpn/desktop/internal/autostart"
 	"github.com/smhasnanmonir/openvpn/desktop/internal/model"
+	"github.com/smhasnanmonir/openvpn/desktop/internal/ovpn"
 	"github.com/smhasnanmonir/openvpn/desktop/internal/profile"
 	"github.com/smhasnanmonir/openvpn/desktop/internal/settings"
+	"github.com/smhasnanmonir/openvpn/desktop/internal/vault"
 )
 
 // View is the MyGo native view. It runs on the UI thread; all slow work lives
@@ -62,6 +64,11 @@ func (a *App) viewUnlock(c *ui.Context) {
 			}
 			if a.unlockError != "" {
 				ui.Text(c, a.unlockError).TextColor(t.Danger).FontSize(12).Wrap()
+			}
+			if vault.RememberSupported() {
+				ui.Checkbox(c, &a.remember, "Remember on this device")
+				ui.Text(c, "Stores the password in your system credential store so the app opens without asking. "+
+					"Anyone who can sign in as this user can then open the vault.").FontSize(11).TextColor(t.TextMuted).Wrap()
 			}
 			if ui.PrimaryButton(c, action).Width(180).Clicked() || submit {
 				a.submitUnlock()
@@ -359,20 +366,9 @@ func (a *App) profileCard(c *ui.Context, p model.ProfileSummary, selected bool) 
 				ui.Text(c, "Selected").FontSize(11).Bold().TextColor(t.Accent)
 			}
 		})
-		ui.Row(c).Gap(8).Wrap().Children(func() {
-			a.badge(c, "CA "+yesNo(p.Metadata.HasCA))
-			a.badge(c, "Client certificate "+yesNo(p.Metadata.HasClientCert || p.Metadata.HasClientKey))
-			if p.Metadata.NeedsPassword {
-				a.badge(c, "username/password")
-			}
-			if p.Metadata.StaticChallenge != "" {
-				a.badge(c, "static challenge")
-			}
-			if p.Metadata.ExternalPKI {
-				a.badge(c, "certificate-less")
-			}
-		})
+		ui.Text(c, signInLine(p.Metadata)).FontSize(12).TextColor(t.TextMuted).Wrap()
 		if p.Warning != "" {
+			ui.Text(c, "Cleaned up automatically when imported:").FontSize(11).Bold().TextColor(t.TextMuted)
 			ui.Text(c, p.Warning).FontSize(11).TextColor(t.Warning).Wrap()
 		}
 		ui.Row(c).Gap(8).Children(func() {
@@ -404,32 +400,80 @@ func (a *App) credentialsCard(c *ui.Context) {
 		return
 	}
 	md := p.Summary.Metadata
-	a.card(c, "Credentials — "+p.Summary.Name, func() {
-		ui.Text(c, "Saved in the encrypted vault. They are written to a mode-0600 temporary file only while connecting, "+
-			"and the file is overwritten and deleted when the session ends.").FontSize(11).TextColor(t.TextMuted).Wrap()
-		ui.Row(c).Gap(10).Wrap().Children(func() {
-			ui.TextInput(c, &a.credUsername).Label("Username").Width(240)
-			ui.TextInput(c, &a.credPassword).Password().Label("Password").Width(240)
-			ui.TextInput(c, &a.credKeyPass).Password().Label("Private-key password (optional)").Width(240)
+	a.card(c, "Sign-in details — "+p.Summary.Name, func() {
+		if md.NeedsPassword {
+			ui.Text(c, "Your VPN provider gave you an account. Type those details here once; they are stored encrypted.").
+				FontSize(12).TextColor(t.TextMuted).Wrap()
+		} else {
+			ui.Text(c, "This profile authenticates with certificates, so no username or password is needed. "+
+				"The certificates are already inside the profile.").FontSize(12).TextColor(t.TextMuted).Wrap()
+		}
+		ui.Row(c).Gap(14).Wrap().Children(func() {
+			if md.NeedsPassword {
+				a.field(c, "Username", "The account name from your provider.", func() {
+					ui.TextInput(c, &a.credUsername).Width(240)
+				})
+				a.field(c, "Password", "Kept encrypted; used only while connecting.", func() {
+					ui.TextInput(c, &a.credPassword).Password().Width(240)
+				})
+			}
+			if md.PrivateKeyNeed {
+				a.field(c, "Key password", "Your provider encrypted the certificate file; this is its password.", func() {
+					ui.TextInput(c, &a.credKeyPass).Password().Width(240)
+				})
+			}
 		})
 		if md.StaticChallenge != "" {
-			ui.Text(c, "Static challenge: "+md.StaticChallenge).FontSize(12).TextColor(t.Warning).Wrap()
-			ui.TextInput(c, &a.credResponse).Password().Label("Challenge response (used once, not saved)").Width(320)
+			ui.Text(c, "Your provider also asks for: "+md.StaticChallenge).FontSize(12).TextColor(t.Warning).Wrap()
+			a.field(c, "Answer", "Asked once per connection; not saved.", func() {
+				ui.TextInput(c, &a.credResponse).Password().Width(320)
+			})
 		}
-		ui.Row(c).Gap(8).Children(func() {
-			if ui.PrimaryButton(c, "Save credentials").Clicked() {
+		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+			if ui.PrimaryButton(c, "Save").Clicked() {
 				a.saveCredentials()
 			}
-			if ui.Button(c, "Connect with this profile").Clicked() {
+			if ui.Button(c, "Save and connect").Clicked() {
+				a.saveCredentials()
 				if err := a.svc.SelectProfile(p.Summary.ID); err != nil {
 					a.setToast(err.Error())
 				} else {
 					a.connect()
 				}
 			}
+			ui.Text(c, "Blank fields are not saved.").FontSize(11).TextColor(t.TextMuted)
 		})
 	})
 }
+
+// field puts a visible label above an input. TextInput's Label() is only an
+// accessibility name, so a bare input leaves the user guessing.
+// signInLine explains, in plain words, what the user has to supply. The
+// imported profile is otherwise a wall of OpenVPN vocabulary.
+func signInLine(md model.ProfileMetadata) string {
+	switch {
+	case md.StaticChallenge != "":
+		return "Signs in with a username, a password and a one-time answer."
+	case md.NeedsPassword:
+		return "Signs in with a username and password from your provider."
+	case md.PrivateKeyNeed:
+		return "Uses a certificate; its file needs a password."
+	default:
+		return "Uses certificates only: nothing to type in."
+	}
+}
+
+func (a *App) field(c *ui.Context, label, hint string, input func()) {
+	t := c.Theme()
+	ui.Column(c).Gap(4).Children(func() {
+		ui.Text(c, label).FontSize(12).Bold()
+		input()
+		if hint != "" {
+			ui.Text(c, hint).FontSize(11).TextColor(t.TextMuted).Wrap()
+		}
+	})
+}
+
 
 func (a *App) importCard(c *ui.Context) {
 	t := c.Theme()
@@ -676,6 +720,7 @@ func (a *App) settings(c *ui.Context) {
 
 		a.card(c, "Privileged helper", func() {
 			ui.Text(c, app.HelperHint(a.helper)).FontSize(12).Wrap()
+			ui.Text(c, "Engine: "+ovpn.EngineLabel()+".").FontSize(11).TextColor(t.TextMuted).Wrap()
 			ui.Row(c).Gap(8).Wrap().Children(func() {
 				if a.helper.InstallAvailable {
 					label := "Install privileged helper"
@@ -720,6 +765,15 @@ func (a *App) settings(c *ui.Context) {
 
 		a.card(c, "Vault and data", func() {
 			ui.Text(c, "Vault: "+a.vaultPath).FontSize(12).Wrap()
+			if vault.RememberSupported() {
+				ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+					if ui.Button(c, "Forget saved password").Clicked() {
+						a.ForgetRemembered()
+					}
+					ui.Text(c, "The next launch asks for the master password again.").
+						FontSize(11).TextColor(t.TextMuted).Wrap()
+				})
+			}
 			if a.svc != nil {
 				ui.Text(c, "Salt fingerprint: "+a.svc.Vault().Fingerprint()).FontSize(11).TextColor(t.TextMuted)
 			}

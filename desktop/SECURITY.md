@@ -329,16 +329,28 @@ optional requests exist besides the VPN:
   redirect is the portal signal), and is disabled by clearing/disable the
   setting.
 
-Start at login writes an XDG autostart entry only; it does **not** store the
-master password. The app opens locked and `--autoconnect` connects only after
-the user unlocks the vault. Do not add a stored password, keyring export or
-plaintext auto-unlock as a shortcut.
+Start at login writes an XDG autostart entry only. By default the app opens
+locked and `--autoconnect` connects only after the user unlocks the vault.
+
+The unlock screen offers **Remember on this device**, which is checked by
+default and can be unticked; `--autoconnect` then needs no prompt. It stores the
+master password in the system credential store: DPAPI (bound to the Windows
+user) on Windows, the login keyring through `secret-tool` on Linux. Nothing is
+stored in plaintext, and **Forget saved password** in Settings removes it.
+macOS has no storing path: the keychain tool only accepts a password as an
+argument, which would expose it in the process list.
+
+Understand the tradeoff: a remembered password protects against a stolen disk or
+backup, not against malware or another process running as the same user. Do not
+extend this to a plaintext file, an exported key or a build-time default.
 
 ## Limitations
 
 - No independent penetration test or third-party audit yet.
 - The master-password vault is not hardware-backed; a compromised user session
-  can read the decrypted vault from process memory.
+  can read the decrypted vault from process memory. With **Remember on this
+  device** enabled, it can also recover the master password from the credential
+  store, so the vault is only as strong as the user account.
 - Go's GC may copy key material; the client zeroes credential files and the
   in-memory key on lock, but cannot guarantee no copies in swap/core dumps.
 - DNS application depends on the host's resolver manager. In a container,

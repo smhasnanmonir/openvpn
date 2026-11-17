@@ -12,5 +12,6 @@ packaging/*.pfx
 packaging/*.p12
 packaging/*.pem
 resources/*/helper.version
+resources/*/openvpn-installer.msi
 __pycache__/
 *.pyc

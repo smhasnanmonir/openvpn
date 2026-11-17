@@ -10,6 +10,13 @@ The Windows workflow is in
 [`.github/workflows/desktop-release.yml`](../../.github/workflows/desktop-release.yml).
 Linux and macOS jobs are unchanged.
 
+Signing is **optional and off by default**. The workflow signs through SignPath
+only when `SIGNPATH_API_TOKEN` is set, falls back to a local `.pfx` when one is
+configured, and otherwise builds and publishes an unsigned installer with a
+`::warning` annotation. SmartScreen and UAC then show an unknown publisher.
+Auto-updates are unaffected either way: they are verified with the Ed25519
+update key, not Authenticode.
+
 ## Why this is a two-stage workflow
 
 SignPath can sign a PE file, but it cannot deep-sign an NSIS installer. The

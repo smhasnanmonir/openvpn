@@ -61,9 +61,16 @@ helper `run` child ──openvpn──▶ management interface 127.0.0.1:<random
 ### Requirements
 
 - Windows 10/11, administrator for the one-time helper install.
-- OpenVPN 2.7+ installed under `C:\Program Files\OpenVPN` with the
-  **TAP-Windows6** driver. The helper finds
-  `C:\Program Files\OpenVPN\bin\openvpn.exe`.
+- No separate OpenVPN download. The app ships the official OpenVPN 2.7.1
+  installer as `openvpn-installer.msi` next to the executable; the elevated
+  helper install verifies its SHA-256, runs it silently, and then uses
+  `C:\Program Files\OpenVPN\bin\openvpn.exe`. That installer provides the
+  **TAP-Windows6** driver, which is required for pushed DNS.
+- An existing OpenVPN installation is reused and the bundled installer is not
+  run.
+- The installer comes from the build step `scripts/fetch-openvpn-msi.sh`; it is
+  not committed. Offline builds fall back to the previous behaviour: install
+  OpenVPN 2.7+ yourself.
 
 ### Install
 
