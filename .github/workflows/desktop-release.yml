@@ -20,8 +20,8 @@ concurrency:
 
 env:
   GO_VERSION: "1.27.x"
-  TAG: ${{ github.ref_type == 'tag' && github.ref_name || format('desktop-v{0}', inputs.version) }}
-  VERSION: ${{ github.ref_type == 'tag' && github.ref_name || format('desktop-v{0}', inputs.version) }}
+  TAG: ${{ github.ref_type == 'tag' && github.ref_name || (inputs.version != '' && format('desktop-v{0}', inputs.version) || 'desktop-v1.0.0') }}
+  VERSION: ${{ github.ref_type == 'tag' && github.ref_name || (inputs.version != '' && format('desktop-v{0}', inputs.version) || 'desktop-v1.0.0') }}
 
 jobs:
   linux:
