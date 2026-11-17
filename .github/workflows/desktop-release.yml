@@ -2,7 +2,6 @@ name: Desktop release
 
 on:
   push:
-    branches: ["feat/desktop-production"]
     tags: ["desktop-v*"]
   workflow_dispatch:
     inputs:
