@@ -12,6 +12,7 @@ on:
 
 permissions:
   contents: write
+  actions: read
 
 concurrency:
   group: desktop-release-${{ github.ref }}
@@ -88,7 +89,7 @@ jobs:
   windows:
     name: Windows installer
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 180
     defaults:
       run:
         working-directory: desktop
@@ -98,6 +99,12 @@ jobs:
       MYGO_UPDATER_PRIVATE_KEY: ${{ secrets.MYGO_UPDATER_PRIVATE_KEY }}
       WINDOWS_CERT_PFX_BASE64: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
       MYGO_WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+      SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+      SIGNPATH_ORGANIZATION_ID: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+      SIGNPATH_PROJECT_SLUG: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+      SIGNPATH_SIGNING_POLICY_SLUG: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG || 'release-signing' }}
+      SIGNPATH_APP_ARTIFACT_CONFIGURATION_SLUG: ${{ vars.SIGNPATH_APP_ARTIFACT_CONFIGURATION_SLUG || 'windows-app' }}
+      SIGNPATH_INSTALLER_ARTIFACT_CONFIGURATION_SLUG: ${{ vars.SIGNPATH_INSTALLER_ARTIFACT_CONFIGURATION_SLUG || 'windows-installer' }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v6
@@ -106,15 +113,31 @@ jobs:
           cache: true
           cache-dependency-path: desktop/go.sum
       - name: Set release version
-        run: python3 scripts/set-version.py "$TAG"
-      - name: Require signing key and certificate for a tag
+        run: |
+          python3 scripts/set-version.py "$TAG"
+          echo "RELEASE_VERSION=${TAG#desktop-v}" >> "$GITHUB_ENV"
+      - name: Require release signing credentials for a tag
         if: github.ref_type == 'tag'
         run: |
           test -n "$MYGO_UPDATER_PRIVATE_KEY" || { echo "::error::set MYGO_UPDATER_PRIVATE_KEY"; exit 1; }
-          test -n "$WINDOWS_CERT_PFX_BASE64" || { echo "::error::set WINDOWS_CERT_PFX_BASE64"; exit 1; }
-          test -n "$MYGO_WINDOWS_CERTIFICATE_PASSWORD" || { echo "::error::set WINDOWS_CERT_PASSWORD"; exit 1; }
-      - name: Import the Authenticode certificate
-        if: env.WINDOWS_CERT_PFX_BASE64 != ''
+          if [[ -n "$SIGNPATH_API_TOKEN" ]]; then
+            for name in SIGNPATH_ORGANIZATION_ID SIGNPATH_PROJECT_SLUG SIGNPATH_SIGNING_POLICY_SLUG; do
+              test -n "${!name}" || { echo "::error::set $name"; exit 1; }
+            done
+          elif [[ -n "$WINDOWS_CERT_PFX_BASE64" ]]; then
+            test -n "$MYGO_WINDOWS_CERTIFICATE_PASSWORD" || { echo "::error::set WINDOWS_CERT_PASSWORD"; exit 1; }
+          else
+            echo "::error::set SignPath credentials or WINDOWS_CERT_PFX_BASE64"
+            exit 1
+          fi
+      - name: Check the SignPath configuration
+        if: env.SIGNPATH_API_TOKEN != ''
+        run: |
+          for name in SIGNPATH_ORGANIZATION_ID SIGNPATH_PROJECT_SLUG SIGNPATH_SIGNING_POLICY_SLUG; do
+            test -n "${!name}" || { echo "::error::set $name"; exit 1; }
+          done
+      - name: Import the local Authenticode certificate
+        if: env.SIGNPATH_API_TOKEN == '' && env.WINDOWS_CERT_PFX_BASE64 != ''
         run: |
           python3 - <<'PY'
           import base64, json, os, pathlib
@@ -136,11 +159,209 @@ jobs:
         working-directory: desktop
         run: |
           $errors = $null
-          [System.Management.Automation.Language.Parser]::ParseFile(
-            (Resolve-Path scripts/install-windows-service.ps1), [ref]$null, [ref]$errors
-          ) | Out-Null
-          if ($errors) { $errors; exit 1 }
-      - name: Build Windows app and installer
+          foreach ($script in @("scripts/install-windows-service.ps1", "packaging/signpath-inject.ps1")) {
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              (Resolve-Path $script), [ref]$null, [ref]$errors
+            ) | Out-Null
+            if ($errors) { $errors; exit 1 }
+          }
+      - name: Validate the SignPath signing configuration
+        run: python3 scripts/check-signing-config.py
+
+      - name: Build the staging installer for SignPath
+        if: env.SIGNPATH_API_TOKEN != ''
+        run: |
+          set -euo pipefail
+          cp mygo.json "$RUNNER_TEMP/mygo.json.release"
+          python3 - <<'PY'
+          import json, pathlib
+          path = pathlib.Path("mygo.json")
+          cfg = json.loads(path.read_text())
+          windows = cfg.setdefault("windows", {})
+          windows["installerInclude"] = "packaging/installer-staging.nsh"
+          windows.pop("certificate", None)
+          windows.pop("signCommand", None)
+          path.write_text(json.dumps(cfg, indent=2, ensure_ascii=False) + "\n")
+          PY
+          go tool mygo build -platform windows/amd64
+
+      - name: Extract the staging uninstaller
+        if: env.SIGNPATH_API_TOKEN != ''
+        shell: pwsh
+        working-directory: desktop
+        run: |
+          $ErrorActionPreference = "Stop"
+          $installDir = Join-Path $env:LOCALAPPDATA "Programs\OpenVPN Desktop"
+          if (Test-Path $installDir) { Remove-Item -Recurse -Force $installDir }
+          $setup = Get-ChildItem "build/windows-amd64/*-setup-*.exe" | Select-Object -First 1
+          if (-not $setup) { throw "staging installer not found" }
+          $install = Start-Process -FilePath $setup.FullName -ArgumentList "/S" -PassThru -Wait
+          if ($install.ExitCode -ne 0) { throw "staging installer failed: $($install.ExitCode)" }
+          $uninstaller = Join-Path $installDir "Uninstall.exe"
+          for ($i = 0; $i -lt 60 -and -not (Test-Path $uninstaller); $i++) {
+            Start-Sleep -Milliseconds 500
+          }
+          if (-not (Test-Path $uninstaller)) { throw "staging installer did not write Uninstall.exe" }
+          $staging = Join-Path $env:RUNNER_TEMP "signpath-staging"
+          New-Item -ItemType Directory -Force $staging | Out-Null
+          Copy-Item $uninstaller (Join-Path $staging "Uninstall.exe") -Force
+          Copy-Item "build/windows-amd64/OpenVPN Desktop.exe" $staging -Force
+          Copy-Item "build/windows-amd64/openvpn-desktop-helper.exe" $staging -Force
+          Remove-Item -Recurse -Force $installDir
+          Remove-Item "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\OpenVPN Desktop.lnk" -Force -ErrorAction SilentlyContinue
+          Remove-Item "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\com.smhasnanmonir.openvpndesktop" -Recurse -Force -ErrorAction SilentlyContinue
+          $upload = Join-Path $env:GITHUB_WORKSPACE "desktop/signpath-app"
+          Remove-Item -Recurse -Force $upload -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force $upload | Out-Null
+          Copy-Item (Join-Path $staging "*") $upload -Force
+
+      - name: Upload the unsigned app files for SignPath
+        if: env.SIGNPATH_API_TOKEN != ''
+        id: upload-unsigned-app
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-app-unsigned
+          path: desktop/signpath-app
+          if-no-files-found: error
+
+      - name: Sign app, helper and uninstaller with SignPath
+        if: env.SIGNPATH_API_TOKEN != ''
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ env.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ env.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ env.SIGNPATH_SIGNING_POLICY_SLUG }}
+          artifact-configuration-slug: ${{ env.SIGNPATH_APP_ARTIFACT_CONFIGURATION_SLUG }}
+          github-artifact-id: ${{ steps.upload-unsigned-app.outputs.artifact-id }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 3600
+          output-artifact-directory: desktop/signed-app
+
+      - name: Install the signed app files and verify
+        if: env.SIGNPATH_API_TOKEN != ''
+        shell: pwsh
+        working-directory: desktop
+        run: |
+          $ErrorActionPreference = "Stop"
+          $signed = Join-Path $env:RUNNER_TEMP "signpath-signed"
+          New-Item -ItemType Directory -Force $signed | Out-Null
+          $root = Join-Path $env:GITHUB_WORKSPACE "desktop/signed-app"
+          $files = Get-ChildItem $root -Recurse -File
+          foreach ($name in @("OpenVPN Desktop.exe", "openvpn-desktop-helper.exe", "Uninstall.exe")) {
+            $f = $files | Where-Object Name -eq $name | Select-Object -First 1
+            if (-not $f) { throw "SignPath did not return $name" }
+            Copy-Item $f.FullName (Join-Path $signed $name) -Force
+          }
+          foreach ($name in @("OpenVPN Desktop.exe", "openvpn-desktop-helper.exe", "Uninstall.exe")) {
+            $path = Join-Path $signed $name
+            $sig = Get-AuthenticodeSignature $path
+            if ($sig.Status -eq "NotSigned") { throw "$name is unsigned" }
+            if (-not $sig.SignerCertificate -or $sig.SignerCertificate.Subject -notmatch "SignPath") {
+              throw "$name is not signed by SignPath: $($sig.SignerCertificate.Subject)"
+            }
+            if ($env:SIGNPATH_SIGNING_POLICY_SLUG -ne "test-signing" -and $sig.Status -ne "Valid") {
+              throw "$name is not validly signed: $($sig.Status)"
+            }
+          }
+          "SIGNPATH_SIGNED_APP=$signed\OpenVPN Desktop.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "SIGNPATH_SIGNED_HELPER=$signed\openvpn-desktop-helper.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "SIGNPATH_SIGNED_UNINSTALLER=$signed\Uninstall.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Configure MyGo to inject the signed files
+        if: env.SIGNPATH_API_TOKEN != ''
+        run: |
+          set -euo pipefail
+          cp "$RUNNER_TEMP/mygo.json.release" mygo.json
+          python3 - <<'PY'
+          import json, pathlib
+          path = pathlib.Path("mygo.json")
+          cfg = json.loads(path.read_text())
+          windows = cfg.setdefault("windows", {})
+          windows["installerInclude"] = "packaging/installer.nsh"
+          windows.pop("certificate", None)
+          windows["signCommand"] = "powershell -NoProfile -ExecutionPolicy Bypass -File packaging/signpath-inject.ps1 %1"
+          path.write_text(json.dumps(cfg, indent=2, ensure_ascii=False) + "\n")
+          PY
+
+      - name: Build the release installer with signed files
+        if: env.SIGNPATH_API_TOKEN != ''
+        run: go tool mygo build -platform windows/amd64
+
+      - name: Verify the release app and helper signatures
+        if: env.SIGNPATH_API_TOKEN != ''
+        shell: pwsh
+        working-directory: desktop
+        run: |
+          foreach ($f in @("build/windows-amd64/OpenVPN Desktop.exe", "build/windows-amd64/openvpn-desktop-helper.exe")) {
+            $sig = Get-AuthenticodeSignature $f
+            if ($sig.Status -eq "NotSigned") { throw "$f is unsigned" }
+            Write-Host "$f -> $($sig.Status) $($sig.SignerCertificate.Subject)"
+            if ($env:SIGNPATH_SIGNING_POLICY_SLUG -ne "test-signing" -and $sig.Status -ne "Valid") {
+              throw "$f is not validly signed: $($sig.Status)"
+            }
+          }
+
+      - name: Prepare the final installer for SignPath
+        if: env.SIGNPATH_API_TOKEN != ''
+        shell: pwsh
+        working-directory: desktop
+        run: |
+          $ErrorActionPreference = "Stop"
+          $dir = Join-Path $env:GITHUB_WORKSPACE "desktop/signpath-installer"
+          Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          $setup = Get-ChildItem "build/windows-amd64/*-setup-*.exe" | Select-Object -First 1
+          if (-not $setup) { throw "release installer not found" }
+          Copy-Item $setup.FullName $dir -Force
+
+      - name: Upload the unsigned installer for SignPath
+        if: env.SIGNPATH_API_TOKEN != ''
+        id: upload-unsigned-installer
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-installer-unsigned
+          path: desktop/signpath-installer
+          if-no-files-found: error
+
+      - name: Sign the installer with SignPath
+        if: env.SIGNPATH_API_TOKEN != ''
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ env.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ env.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ env.SIGNPATH_SIGNING_POLICY_SLUG }}
+          artifact-configuration-slug: ${{ env.SIGNPATH_INSTALLER_ARTIFACT_CONFIGURATION_SLUG }}
+          github-artifact-id: ${{ steps.upload-unsigned-installer.outputs.artifact-id }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 3600
+          output-artifact-directory: desktop/signed-installer
+
+      - name: Install the signed installer into the build output and verify
+        if: env.SIGNPATH_API_TOKEN != ''
+        shell: pwsh
+        working-directory: desktop
+        run: |
+          $ErrorActionPreference = "Stop"
+          $root = Join-Path $env:GITHUB_WORKSPACE "desktop/signed-installer"
+          $signedSetup = Get-ChildItem $root -Recurse -File -Filter "*-setup-*.exe" | Select-Object -First 1
+          if (-not $signedSetup) { throw "SignPath did not return the installer" }
+          $target = Get-ChildItem "build/windows-amd64/*-setup-*.exe" | Select-Object -First 1
+          Copy-Item $signedSetup.FullName $target.FullName -Force
+          $sig = Get-AuthenticodeSignature $target.FullName
+          if ($sig.Status -eq "NotSigned") { throw "the installer is unsigned" }
+          if (-not $sig.SignerCertificate -or $sig.SignerCertificate.Subject -notmatch "SignPath") {
+            throw "the installer is not signed by SignPath"
+          }
+          if ($env:SIGNPATH_SIGNING_POLICY_SLUG -ne "test-signing" -and $sig.Status -ne "Valid") {
+            throw "the installer is not validly signed: $($sig.Status)"
+          }
+          Write-Host "installer -> $($sig.Status) $($sig.SignerCertificate.Subject)"
+
+      - name: Build Windows app and installer with the local certificate
+        if: env.SIGNPATH_API_TOKEN == ''
         run: go tool mygo build -platform windows/amd64
       - name: Verify the installer and bundled helper
         run: |

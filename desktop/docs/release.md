@@ -35,8 +35,12 @@ Do not publish a stable release until all of these are true.
       `sudo scripts/test-macos-service.sh` and
       [`windows-macos.md`](windows-macos.md#verify-on-a-mac).
 - [ ] Upgrade, uninstall and reboot tests pass on Windows and macOS.
-- [ ] Windows GUI, helper and installer are Authenticode-signed and
-      timestamped.
+- [ ] Windows GUI, helper, installer and installed uninstaller are
+      Authenticode-signed and timestamped (SignPath Foundation or a local
+      certificate):
+      ```powershell
+      Get-AuthenticodeSignature "$env:LOCALAPPDATA\Programs\OpenVPN Desktop\Uninstall.exe"
+      ```
 - [ ] macOS app, embedded helper and disk image are Developer ID signed and
       notarized; the ticket is stapled.
 - [ ] The update private key is stored in the repository secrets and in the
@@ -56,13 +60,22 @@ Do not publish a stable release until all of these are true.
 
 ## Secrets
 
-Configure these in **Settings → Secrets and variables → Actions**:
+Configure these in **Settings → Secrets and variables → Actions**.
 
-| Secret | Purpose |
+Windows signing uses **SignPath Foundation** by default; a local `.pfx` is the
+optional fallback. See [`signpath.md`](signpath.md).
+
+| Secret / variable | Purpose |
 |---|---|
 | `MYGO_UPDATER_PRIVATE_KEY` | Contents of `mygo-update.key`; signs update manifests and archives. Required for a tag. |
-| `WINDOWS_CERT_PFX_BASE64` | Base64 `.pfx` Authenticode certificate. Required for a tag. |
-| `WINDOWS_CERT_PASSWORD` | Password for the `.pfx`. |
+| `SIGNPATH_API_TOKEN` | SignPath API token; a tag needs this or the local certificate. |
+| `SIGNPATH_ORGANIZATION_ID` | SignPath organization ID (Actions variable). |
+| `SIGNPATH_PROJECT_SLUG` | SignPath project slug (Actions variable). |
+| `SIGNPATH_SIGNING_POLICY_SLUG` | `release-signing` (or `test-signing`). |
+| `SIGNPATH_APP_ARTIFACT_CONFIGURATION_SLUG` | `windows-app` (default). |
+| `SIGNPATH_INSTALLER_ARTIFACT_CONFIGURATION_SLUG` | `windows-installer` (default). |
+| `WINDOWS_CERT_PFX_BASE64` | Optional local `.pfx` fallback. |
+| `WINDOWS_CERT_PASSWORD` | Password for the optional `.pfx`. |
 | `MACOS_CERT_P12_BASE64` | Base64 Developer ID Application `.p12`. Required for a tag. |
 | `MACOS_CERT_PASSWORD` | Password for the `.p12`. |
 | `MACOS_SIGNING_IDENTITY` | e.g. `Developer ID Application: Name (TEAMID)`. |
@@ -129,7 +142,8 @@ powershell -ExecutionPolicy Bypass -File desktop\scripts\test-windows-service.ps
 sudo desktop/scripts/test-macos-service.sh
 ```
 
-Windows installer and signature on Windows:
+Windows installer and signature locally (optional local certificate fallback;
+the release workflow uses SignPath and needs no local certificate):
 
 ```powershell
 $env:MYGO_UPDATER_PRIVATE_KEY = Get-Content .keys\mygo-update.key -Raw
@@ -137,6 +151,11 @@ $env:MYGO_WINDOWS_CERTIFICATE_PASSWORD = "..."
 # mygo.json: "windows": { "certificate": "packaging/windows.pfx", ... }
 go tool mygo build -platform windows/amd64
 ```
+
+The SignPath path is CI-only: it builds a staging installer, extracts and signs
+the generated uninstaller, injects the signed app/helper/uninstaller through
+`signCommand`, builds the release installer, signs it, and verifies every
+signature before publishing. Each request needs a manual SignPath approval.
 
 macOS signing/notarization is handled by the workflow; locally use a Developer
 ID identity and `xcrun notarytool`:

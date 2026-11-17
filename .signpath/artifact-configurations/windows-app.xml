@@ -1,0 +1,13 @@
+<artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
+  <zip-file>
+    <pe-file path="**/OpenVPN Desktop.exe">
+      <authenticode-sign />
+    </pe-file>
+    <pe-file path="**/openvpn-desktop-helper.exe">
+      <authenticode-sign />
+    </pe-file>
+    <pe-file path="**/Uninstall.exe">
+      <authenticode-sign />
+    </pe-file>
+  </zip-file>
+</artifact-configuration>
