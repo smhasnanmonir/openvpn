@@ -5,6 +5,7 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 export PATH="${PATH}:/usr/local/go/bin"
 export GOTOOLCHAIN="${GOTOOLCHAIN:-local}"
 
+python3 scripts/check-signing-config.py
 go vet ./...
 go test ./... -count=1
 go test -race ./... -count=1
