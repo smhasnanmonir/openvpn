@@ -733,6 +733,10 @@ func (s *Service) Close() {
 	s.mu.Unlock()
 	if session != nil {
 		session.Stop()
+		select {
+		case <-session.Done():
+		case <-time.After(5 * time.Second):
+		}
 	}
 	s.vault.Lock()
 }

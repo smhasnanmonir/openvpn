@@ -130,5 +130,6 @@ func (s *Session) finishService(errText string) {
 		}
 		s.emit(Event{Kind: EventExited, Error: errText})
 		close(s.events)
+		close(s.done)
 	})
 }

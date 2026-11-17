@@ -64,6 +64,7 @@ type Session struct {
 	cmd         *exec.Cmd
 	mgmt        *ManagementClient
 	events      chan Event
+	done        chan struct{}
 	tempDir     string
 	stopped     chan struct{}
 	stopOnce    sync.Once
@@ -234,7 +235,10 @@ func Start(ctx context.Context, spec Spec) (*Session, error) {
 		default:
 			s.emit(Event{Kind: EventExited, Error: errText})
 		}
-		s.finish.Do(func() { close(s.events) })
+		s.finish.Do(func() {
+			close(s.events)
+			close(s.done)
+		})
 	}()
 
 	return s, nil
@@ -242,6 +246,9 @@ func Start(ctx context.Context, spec Spec) (*Session, error) {
 
 // Events is closed when the process exits and all events were delivered.
 func (s *Session) Events() <-chan Event { return s.events }
+
+// Done is closed after Events, once the session files and child are cleaned up.
+func (s *Session) Done() <-chan struct{} { return s.done }
 
 // Stop asks OpenVPN to disconnect, then kills it if it does not exit. It is
 // safe to call more than once.

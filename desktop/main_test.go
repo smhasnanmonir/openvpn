@@ -32,7 +32,11 @@ func TestDirForExecutableResolvesSymlink(t *testing.T) {
 	if err := os.Symlink(real, link); err != nil {
 		t.Skipf("symlinks are unavailable: %v", err)
 	}
-	if got := dirForExecutable(link); got != filepath.Dir(real) {
-		t.Fatalf("dir = %q, want %q", got, filepath.Dir(real))
+	want, err := filepath.EvalSymlinks(filepath.Dir(real))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := dirForExecutable(link); got != want {
+		t.Fatalf("dir = %q, want %q", got, want)
 	}
 }
