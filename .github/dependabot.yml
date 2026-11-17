@@ -5,7 +5,7 @@ version: 2
 # SECURITY.md; Dependabot keeps the routine dependency/action updates moving.
 updates:
   - package-ecosystem: "gradle"
-    directory: "/"
+    directory: "/android"
     schedule:
       interval: "weekly"
       day: "monday"
@@ -14,10 +14,32 @@ updates:
     open-pull-requests-limit: 5
     labels:
       - "dependencies"
+      - "android"
     commit-message:
       prefix: "build(deps)"
     groups:
       gradle-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+
+  - package-ecosystem: "gomod"
+    directory: "/desktop"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "05:00"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "desktop"
+    commit-message:
+      prefix: "build(desktop-deps)"
+    groups:
+      go-minor-patch:
         patterns:
           - "*"
         update-types:

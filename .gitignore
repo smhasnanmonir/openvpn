@@ -1,10 +1,17 @@
-# Android / Gradle
+# ==========================================================================
+# Monorepo: android/ (Gradle + Kotlin + native) and desktop/ (Go + MyGo)
+# ==========================================================================
+
+# --- Shared / OS ---
 *.iml
-.gradle/
-local.properties
 .idea/
 .DS_Store
-build/
+*.hprof
+
+# --- Android / Gradle ---
+.gradle/
+.kotlin/
+local.properties
 captures/
 .externalNativeBuild/
 .cxx/
@@ -13,14 +20,21 @@ captures/
 *.keystore
 *.jks
 keystore.properties
+build/
+android/app/src/main/cpp/deps/
+android/app/src/main/cpp/build/
+android/third_party/build/
+android/.native-deps/
 
-# Native build outputs
-app/src/main/cpp/deps/
-app/src/main/cpp/build/
-third_party/build/
-
-# Generated
-*.hprof
-.kotlin/
-
-.native-deps/
+# --- Desktop / Go / MyGo ---
+desktop/*.exe
+desktop/*.test
+desktop/.mygo/
+desktop/build/
+desktop/dist/
+desktop/bin/
+*.syso
+*.dmg
+*.deb
+*.rpm
+*.AppImage

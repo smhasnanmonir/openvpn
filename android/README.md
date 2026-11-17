@@ -3,6 +3,11 @@
 [![Android CI](https://github.com/smhasnanmonir/openvpn/actions/workflows/android.yml/badge.svg)](https://github.com/smhasnanmonir/openvpn/actions/workflows/android.yml)
 [![Latest release](https://img.shields.io/github/v/release/smhasnanmonir/openvpn)](https://github.com/smhasnanmonir/openvpn/releases/latest)
 
+> **This is the Android client.** The monorepo overview is in
+> [`../README.md`](../README.md); the Linux/desktop client is in
+> [`../desktop`](../desktop). The Gradle project root is this `android/`
+> directory, so run `./gradlew` from here.
+
 A production-minded Android OpenVPN client built with Kotlin, Jetpack Compose,
 Android `VpnService`, and the official **OpenVPN 3 Core** engine.
 

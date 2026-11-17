@@ -19,6 +19,9 @@ jobs:
     name: Build, test, lint
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: android
     env:
       # Hosted runners have no IPv6 route while services.gradle.org resolves to
       # IPv6 first. The Gradle wrapper downloads its distribution with a plain
@@ -44,6 +47,7 @@ jobs:
           # Use the project wrapper instead of a CI-preinstalled Gradle so that
           # wrapper bumps (Dependabot PRs) are actually exercised by CI.
           gradle-version: "wrapper"
+          build-root-directory: android
 
       - name: Verify the project Gradle wrapper is used
         run: |
@@ -74,9 +78,9 @@ jobs:
         uses: actions/cache@v6
         with:
           path: |
-            .native-deps/cache
-            app/src/main/cpp/deps
-          key: native-deps-v1-${{ runner.os }}-${{ hashFiles('scripts/fetch-native-deps.sh', 'scripts/build-native-deps.sh', 'third_party/openvpn3/deps/asio/patches/*') }}
+            android/.native-deps/cache
+            android/app/src/main/cpp/deps
+          key: native-deps-v1-${{ runner.os }}-${{ hashFiles('android/scripts/fetch-native-deps.sh', 'android/scripts/build-native-deps.sh', 'android/third_party/openvpn3/deps/asio/patches/*') }}
 
       - name: Build pinned native dependencies
         run: |
@@ -141,14 +145,14 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: sbom
-          path: build/sbom/sbom.cdx.json
+          path: android/build/sbom/sbom.cdx.json
           if-no-files-found: error
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v7
         with:
           name: app-debug
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
 
       - name: Upload test APKs
@@ -156,8 +160,8 @@ jobs:
         with:
           name: instrumentation-apks
           path: |
-            app/build/outputs/apk/debug/app-debug.apk
-            app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+            android/app/build/outputs/apk/debug/app-debug.apk
+            android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
           if-no-files-found: error
 
       - name: Decode release keystore
@@ -271,7 +275,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: app-release
-          path: app/build/outputs/apk/release/app-release.apk
+          path: android/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
 
   release:

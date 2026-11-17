@@ -1,5 +1,10 @@
 # AGENTS.md — handoff context for AI agents
 
+> **Subtree note:** this file covers the **Android** client in `android/`.
+> The monorepo overview is [`../AGENTS.md`](../AGENTS.md); the desktop client is
+> [`../desktop/AGENTS.md`](../desktop/AGENTS.md). All paths below are relative
+> to `android/`.
+>
 > **Read this file first.** It is the single source of context for this repository:
 > what the product is, what has already been built, what is in flight, what is
 > left, and how to verify work. Keep it up to date when you change the project.
