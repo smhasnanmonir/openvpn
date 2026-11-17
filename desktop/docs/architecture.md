@@ -128,21 +128,39 @@ privileged **service** (`internal/helper/service.go`):
 4. A stop message or disconnect sends SIGTERM (Unix) or kills the process tree
    (Windows); the child cleans up, and the service returns an `exit` message.
 
-Windows: `internal/winhelper` installs/runs `OpenVPNDesktopHelper` as
-LocalSystem; `cmd/openvpn-desktop-helper/main_windows.go` provides
-`install-service`/`uninstall-service`/`service`. DNS uses TAP-Windows6 with
+`internal/serviceinstall` installs the helper: Windows copies it into Program
+Files, writes SID-protected tokens and creates/upgrades the LocalSystem
+service; macOS copies it and a root-owned OpenVPN into `/Library`, writes the
+launchd daemon and tokens; Linux installs the helper and a polkit action. The
+GUI can trigger this with one administrator prompt via
+`internal/ovpn/install_helper_*.go`, and rechecks the helper without restarting.
+
+Windows: `internal/winhelper` runs `OpenVPNDesktopHelper` as LocalSystem;
+`cmd/openvpn-desktop-helper/main_windows.go` handles `service` and delegates
+install/uninstall to `helper.Main`. DNS uses TAP-Windows6 with
 `--block-outside-dns --register-dns`.
 
-macOS: launchd runs `openvpn-desktop-helper serve --config ...` as root;
-`dns_darwin.go` applies pushed resolvers with `networksetup` to the primary
-service and restores them on `dns-down`. The helper requires a root-owned
-OpenVPN (Homebrew is accepted only when not group/world writable).
+macOS: launchd runs the installed `openvpn-desktop-helper serve --config ...`
+as root; `dns_darwin.go` applies pushed resolvers with `networksetup` to the
+primary service and restores them on `dns-down`. The helper requires the
+root-owned OpenVPN copy made by the installer, never a user-writable binary.
 
 Guest/host transport is a token-authenticated loopback TCP connection, not a
 platform-native pipe/XPC, so the same protocol and tests cover both platforms.
 The shared service core and GUI client are exercised by
-`TestLiveTunnelService` on Linux; Windows/macOS device verification is listed in
-[`windows-macos.md`](windows-macos.md).
+`TestLiveTunnelService` on Linux. `scripts/build-helpers.sh` places the helper
+in MyGo platform resources, and `go tool mygo build` bundles it into every
+package. Windows/macOS device verification is listed in
+[`windows-macos.md`](windows-macos.md); release/signing steps are in
+[`release.md`](release.md).
+
+## Updates
+
+`mygo.json` configures a signed GitHub update feed (`desktop-v*` tags) with an
+Ed25519 public key. `main.go` installs MyGo's native updater plugin and a
+**Check for Updates…** menu item. Release builds set
+`MYGO_UPDATER_PRIVATE_KEY`; installed apps verify the manifest/archive signature
+before replacing the app.
 
 ## Per-app split tunneling (Linux)
 

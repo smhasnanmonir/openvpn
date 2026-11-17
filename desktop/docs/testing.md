@@ -11,8 +11,9 @@ go vet ./...
 go build ./...
 ```
 
-Current result: **92 test functions in 14 packages, all passing**. There are no
-build-tagged live tests in the normal run; the integration test is separate.
+Current result: **102 test functions in 15 packages, all passing** on Linux
+(2026-11-17). The Windows-only autostart test also runs in the Windows CI job;
+the live-tunnel integration tests are separate and root-only.
 
 | Package | What is covered |
 |---|---|
@@ -25,9 +26,10 @@ build-tagged live tests in the normal run; the integration test is separate.
 | `internal/security` | Credential/key log redaction and truncation. |
 | `internal/app` | Import, dedupe, trust rejection, companion inlining, delete, synchronous policy errors, settings validation, fatal-error classification, captive-portal probe/detection/pause behaviour. |
 | `internal/captiveportal` | URL validation, 204 internet, redirect/portal URL resolution, 200 portal page, offline, unsafe probe/portal URL rejection. |
-| `internal/autostart` | XDG entry generation, install/remove, absolute-path validation, Exec quoting. |
+| `internal/autostart` | Linux XDG entry generation/remove/quoting; Windows per-user `Run` key install/remove (Windows CI); macOS LaunchAgent install/remove (macOS CI). |
+| `internal/serviceinstall` | Helper option normalization, protected copy mode, token reuse across upgrades, repair of an invalid system config. |
 | `internal/serviceproto` | Service config validation/round-trip, Unix file mode, token/loopback checks. |
-| `internal/ovpn` service client | Service endpoint discovery, missing config, env endpoint, no local command for service mode. |
+| `internal/ovpn` service client | Service endpoint discovery, missing config, env endpoint, no local command for service mode, bundled-helper discovery, install refusal without pkexec. |
 | `internal/settings` | Defaults/normalization, portal URL validation, CIDR parsing/validation. |
 | `internal/appui` | Unlock screen, vault creation through the view, tabs, profile rendering, wrong password, warnings, and **viewport layout** (Home/Settings/Logs content inside the window with non-zero size). |
 | root | Data-directory override. |
@@ -65,15 +67,15 @@ material reached the logs and that OpenVPN's own `dns-updown` script did not run
 (it is disabled so it cannot bypass the fail-closed policy), disconnects and
 waits for `DISCONNECTED`.
 
-Recorded result (2026-11-16, Linux 7.0.0 x86_64, OpenVPN 2.7.0, OpenSSL 3.5.5):
+Recorded result (2026-11-17, Linux 7.0.0 x86_64, OpenVPN 2.7.0, OpenSSL 3.5.5):
 
 ```
 ==> checking the fail-closed DNS refusal
     refused as expected
 === RUN   TestLiveTunnel
-    live_test.go:84: connected: ip=10.8.0.2 server=192.168.123.1:1194 stats={BytesIn:4934 BytesOut:4705 PacketsIn:0 PacketsOut:0}
+    live_test.go:84: connected: ip=10.8.0.2 server=192.168.123.1:1194 stats={BytesIn:5042 BytesOut:4823 PacketsIn:0 PacketsOut:0}
     live_test.go:97: disconnected cleanly
---- PASS: TestLiveTunnel (5.67s)
+--- PASS: TestLiveTunnel (5.69s)
 PASS
 ==> live tunnel verification passed
 ```
@@ -107,6 +109,31 @@ and macOS launchd/DNS code cross-compile; their installers and device checklist
 are in [`windows-macos.md`](windows-macos.md). A real Windows/macOS tunnel,
 code signing and notarization still require those machines.
 
+### Packaging evidence (2026-11-17, Linux host)
+
+```
+$ go tool mygo build -platform windows/amd64
+  ✓ Created openvpn-desktop-setup-1.0.0-amd64.exe  13.0s
+  ✓ Built OpenVPN Desktop 1.0.0
+  OpenVPN Desktop.exe                      16.8 MB
+  openvpn-desktop-setup-1.0.0-amd64.exe     6.6 MB
+  openvpn-desktop-helper.exe                4.0 MB
+
+$ go tool mygo build -platform linux/amd64
+  $ dpkg-deb -c build/linux-amd64/*.deb | grep helper
+  -rwxr-xr-x root/root 3788960 ./opt/openvpn-desktop/openvpn-desktop-helper
+
+$ MYGO_UPDATER_PRIVATE_KEY=... go tool mygo build -platform linux/amd64
+  ✓ Built OpenVPN Desktop 1.0.0
+  update-linux-amd64.json 2009 bytes (signed manifest)
+```
+
+The NSIS installer includes `packaging/installer.nsh` with a UAC `runas` call
+that installs the service; the macOS app contains the helper under
+`Contents/Resources`. The helper's `install-service` path was exercised on
+Linux (`install`/`uninstall` wrote and removed the polkit action and
+`/usr/local/libexec/openvpn-desktop/openvpn-desktop-helper`).
+
 ## Per-app split tunneling test
 
 ```bash
@@ -127,15 +154,15 @@ remounts `/sys`), copies a `sleep` binary to a unique path, and runs
   non-selected process is not moved;
 - `Stop` removes the nft table, rules, routes and cgroups.
 
-Recorded result (2026-11-16):
+Recorded result (2026-11-17):
 
 ```
 === RUN   TestPerAppSplitInclude
 [openvpn-desktop] per-app split: include, 1 app(s), families v4=true v6=false
---- PASS: TestPerAppSplitInclude (2.66s)
+--- PASS: TestPerAppSplitInclude (2.65s)
 === RUN   TestPerAppSplit
 [openvpn-desktop] per-app split: exclude, 1 app(s), families v4=true v6=false
---- PASS: TestPerAppSplit (2.10s)
+--- PASS: TestPerAppSplit (2.12s)
 PASS
 ==> per-app split tunneling verification passed
 ```
@@ -243,8 +270,9 @@ Run on a real desktop with a real provider (or the local live-test server):
 ## Known unverified areas
 
 - Independent penetration test / code audit (not performed).
-- Windows and macOS privileged service integration (not implemented).
-- Native per-app split tunneling (not implemented; route-based only).
+- Real Windows and macOS tunnels and DNS behavior on those operating systems.
+- Native per-app split tunneling on Windows/macOS (Linux-only by design;
+  route-based split works everywhere).
 - Captive-portal detection against a real hotel/airport portal (the probe and
   URL-safety logic are unit-tested, and the pause/reconnect flow is manual).
 - Start-at-login under GNOME/KDE/XFCE autostart implementations (the XDG entry
@@ -256,8 +284,9 @@ Run on a real desktop with a real provider (or the local live-test server):
   desktop resolver), Wi-Fi↔cellular changes, and apps with several child
   processes/wrapper scripts.
 - Real Windows and macOS tunnels, their service installers, DNS behavior,
-  code signing/notarization. Use the checklists in
-  [`windows-macos.md`](windows-macos.md); the shared service core is verified on
-  Linux but the platform wrappers have not run on those devices from this host.
+  upgrade/reboot/uninstall, code signing/notarization. Use the checklists in
+  [`windows-macos.md`](windows-macos.md); the shared service core and packaging
+  are verified on Linux but the platform wrappers have not run on those devices
+  from this host.
 - Real 16 KB-page / mobile parity is Android-specific and covered by the
   Android test suite, not here.

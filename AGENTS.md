@@ -9,14 +9,14 @@
 >
 > This file only describes the monorepo layout and cross-cutting rules.
 
-## Status snapshot (2026-11-16)
+## Status snapshot (2026-11-17)
 
 | Item | Value |
 |---|---|
-| Branch | `feat/desktop-client` (restructure + desktop client) |
+| Branch | `feat/desktop-production` (PR #37; restructure + desktop client) |
 | Android | Moved to `android/`; Gradle project root is now `android/`; native submodule is `android/third_party/openvpn3`; Android CI uses `working-directory: android` |
-| Desktop | New `desktop/` Go + MyGo client, version 1.0.0; 92 test functions / 14 packages; live tunnel PASS; packages built |
-| Shared CI | `.github/workflows/android.yml`, new `.github/workflows/desktop.yml`, `.github/workflows/security.yml` (Android SBOM), Dependabot for Gradle/Go/Actions |
+| Desktop | `desktop/` Go + MyGo client, 1.0.0; 102 tests / 15 packages; live tunnel PASS; Linux/Windows/macOS packages with bundled helper; signed update feed configured |
+| Shared CI | `.github/workflows/android.yml`, `.github/workflows/desktop.yml`, `.github/workflows/desktop-release.yml`, `.github/workflows/security.yml` (Android SBOM), Dependabot for Gradle/Go/Actions |
 | Root docs | `README.md` (overview), this file, `LICENSE`; detailed docs live in each client |
 
 ## Layout
@@ -76,10 +76,11 @@ manual gate.
 
 - Android: physical-device leak matrix, 16 KB device launch, store/legal
   publication, independent pen test (see `android/AGENTS.md` §7–§8).
-- Desktop: independent audit/pen test; real Windows/macOS device tunnel tests,
-  code signing/notarization and installer QA. Linux per-app split tunneling
-  (cgroup v2 + nftables/policy routing), tray, captive-portal pause/sign-in,
-  start-at-login/auto-connect, and the Windows service/macOS launchd helper
-  protocol/installers are implemented.
+- Desktop: independent audit/pen test; real Windows/macOS device tunnel,
+  reboot/upgrade/uninstall tests; production code signing/notarization with
+  the maintainer's certificates. Linux per-app split tunneling (cgroup v2 +
+  nftables/policy routing), tray, captive-portal pause/sign-in, start-at-login
+  on all three platforms, one-click helper install, and signed `desktop-v*`
+  updates are implemented. See `desktop/docs/release.md`.
 - Neither client has a backend/control plane or iOS implementation; those are
   documented scope decisions in `android/docs/architecture/`.

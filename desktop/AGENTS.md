@@ -4,22 +4,22 @@
 > in [`../android/AGENTS.md`](../android/AGENTS.md); the monorepo overview is in
 > [`../AGENTS.md`](../AGENTS.md).
 
-## Status snapshot (2026-11-16)
+## Status snapshot (2026-11-17)
 
 | Item | Value |
 |---|---|
-| Product | Production-minded Linux desktop OpenVPN client in Go + MyGo native UI |
+| Product | Production-minded Linux/Windows/macOS OpenVPN client in Go + MyGo native UI |
 | Version | 1.0.0 (`mygo.json`) |
-| Branch | `feat/desktop-client` (android/desktop restructure + desktop app) |
-| Unit tests | **92 test functions / 14 packages / 0 failures** (`go test ./... -count=1`) |
+| Branch | `feat/desktop-production` (PR #37; android/desktop restructure + desktop app) |
+| Unit tests | **102 test functions / 15 packages / 0 failures** (`go test ./... -count=1`) |
 | Vet/build | `go vet ./...`, `go build ./...` clean |
-| Packaging | `go tool mygo build` → `build/linux-amd64/` binary (12.1 MB), icons, `.deb`, `.rpm`, tarball |
-| Cross-compile | `GOOS=windows/amd64`, `GOOS=darwin/arm64`, `GOOS=linux/arm64` all build clean; the privileged helper is Linux/Unix-only and fails closed elsewhere |
+| Packaging | `./scripts/build-helpers.sh && go tool mygo build` → Linux binary + `.deb`/`.rpm`/tarball (helper included), Windows NSIS setup (helper included), macOS app/dmg (helper in `Contents/Resources`) |
+| Cross-compile | `GOOS=windows/amd64`, `GOOS=darwin/arm64`, `GOOS=linux/arm64` all build clean; helpers for linux/windows/darwin amd64+arm64 are built by `scripts/build-helpers.sh` |
 | Live tunnel | **PASS**: local OpenVPN 2.7 server in a server netns, client in a client netns; TLS 1.3, cert auth, `CONNECTED`, IP `10.8.0.2`, ping through tunnel, counters, redacted logs, clean disconnect (`scripts/test-live-tunnel.sh`) |
-| Parity additions | System tray + minimize-to-tray, captive-portal probe/pause/sign-in/reconnect, XDG start-at-login + auto-connect after unlock (no stored password), Linux per-app split tunneling (cgroup v2 + nftables/policy routing, include/exclude, new-process monitor, DNS resolver pinning), Windows service + macOS launchd privileged helper with a token-authenticated loopback job protocol |
+| Parity additions | System tray + minimize-to-tray, captive-portal probe/pause/sign-in/reconnect, start-at-login (XDG/Run key/LaunchAgent) + auto-connect after unlock (no stored password), Linux per-app split tunneling (cgroup v2 + nftables/policy routing, include/exclude, new-process monitor, DNS resolver pinning), Windows service + macOS launchd helper with token-authenticated loopback jobs, one-click helper install, signed `desktop-v*` updates |
 | Headless launch | Xvfb + openbox creates the 1120×800 `"OpenVPN Desktop"` window; MyGo's GL surface makes raw screenshots unreliable, so the viewport test is authoritative |
-| Not done | Independent pen test/audit; real Windows/macOS device tunnel tests, code signing/notarization, and platform installer QA |
-| Next action | Real-provider desktop test matrix (`docs/testing.md`), external audit, then Windows/macOS helper/service work if in scope |
+| Not done | Independent pen test/audit; real Windows/macOS device tunnel/reboot/upgrade tests; live code signing/notarization with production certificates |
+| Next action | Run `docs/windows-macos.md` on real Windows/macOS, attach certificates/secrets, publish `desktop-v1.0.0` draft, then external audit (`docs/release.md`) |
 
 ## Non-negotiable security invariants
 
@@ -32,16 +32,22 @@
    - resolve tools only from root-owned, non-writable absolute paths,
    - never pass the user's environment or `PATH` to OpenVPN.
 4. Keep the fail-closed DNS default. A missing resolver with “Require tunnel
-   DNS” on must abort the connection.
+   DNS” on must abort the connection. Windows uses `--block-outside-dns`
+   (TAP-Windows6); macOS uses `networksetup`.
 5. Never log credentials, keys, profiles or static-challenge responses. Keep
    `internal/security` markers in sync with any new sensitive option.
 6. The vault is Argon2id + AES-256-GCM, atomic `0600` writes in a `0700`
    directory. Do not add plaintext settings/profile files.
-7. The kill switch is opt-in, removed on normal exit, and recoverable with
+7. Keep the Windows token files/directories on explicit SID-based DACLs and
+   the macOS system config/helper/OpenVPN copy root-owned. The daemon must never
+   execute a user-writable binary.
+8. Update manifests/archives are signed with the Ed25519 key whose public half
+   is in `mygo.json`; never commit the private key or ship an unsigned tag.
+9. The kill switch is opt-in, removed on normal exit, and recoverable with
    `openvpn-desktop-helper cleanup`. Do not claim system-wide protection when it
    is off.
-8. Split tunneling/compression/cipher opt-ins must stay explicit and warned.
-9. No analytics, telemetry, crash reporter, account or backend. The only
+10. Split tunneling/compression/cipher opt-ins must stay explicit and warned.
+11. No analytics, telemetry, crash reporter, account or backend. The only
    optional request is the public-IP check to the configured URL.
 
 ## Commands
@@ -50,8 +56,11 @@
 cd desktop
 export PATH=$PATH:/usr/local/go/bin
 go test ./... -count=1
+go test -race ./... -count=1
 go vet ./...
 go build ./...
+./scripts/build-helpers.sh
+python3 scripts/gen-sbom.py -o build/sbom.cdx.json
 go tool mygo build
 
 # helper only
@@ -64,11 +73,18 @@ sudo ./scripts/test-live-tunnel.sh
 # per-app cgroup/nftables/policy routing (root, netns, cgroup v2)
 sudo ./scripts/test-per-app-split.sh
 
+# release build (SBOM + packages + signed updates when the key is set)
+./scripts/build-helpers.sh
+python3 scripts/gen-sbom.py -o build/sbom.cdx.json
+MYGO_UPDATER_PRIVATE_KEY="$(cat .keys/mygo-update.key)" go tool mygo build
+
 # Windows/macOS builds and service installers
 GOOS=windows GOARCH=amd64 go build ./...
 GOOS=darwin GOARCH=arm64 go build ./...
 # Windows (elevated): scripts/install-windows-service.ps1
+# Windows service smoke test: scripts/test-windows-service.ps1
 # macOS: sudo scripts/install-macos-service.sh
+# macOS service smoke test: sudo scripts/test-macos-service.sh
 
 # install/remove the root helper
 sudo ./scripts/install-helper.sh [auto|polkit|sudo|setuid]

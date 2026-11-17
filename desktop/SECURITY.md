@@ -7,7 +7,7 @@ rather than silently weaken the VPN.
 ## Reporting
 
 Report vulnerabilities privately through the repository's security policy
-([`../SECURITY.md`](../SECURITY.md)) or the GitHub security advisory flow. Do
+([`../android/SECURITY.md`](../android/SECURITY.md)) or the GitHub security advisory flow. Do
 not open a public issue with credentials, private keys or a working exploit.
 
 ## Assets and adversaries
@@ -222,7 +222,10 @@ non-zero exit and an explanatory message.
   `/Library/Application Support/OpenVPN Desktop/service.json` (root 0600). The
   per-user token file is `%APPDATA%\openvpn-desktop\service.json` or
   `~/Library/Application Support/openvpn-desktop/service.json`, restricted to
-  the installing user. A local process without that token cannot start a job.
+  the installing user. Windows uses explicit SID-based DACLs for the token
+  files and their directories; macOS chowns the per-user directory/file and
+  keeps the system copy root-owned. A local process without that token cannot
+  start a job.
 - Jobs carry profile text, credentials and the management endpoint over the
   authenticated loopback connection. The service writes them to a protected
   temp directory: SYSTEM/Administrators DACL on Windows, `0700` root on macOS.
@@ -232,13 +235,14 @@ non-zero exit and an explanatory message.
   deleted after the session; logs are redacted before they are streamed.
 - OpenVPN path trust:
   - Windows: `C:\Program Files\OpenVPN\bin\openvpn.exe` (Program Files ACL).
-  - macOS: `/usr/local/sbin`, `/opt/homebrew/sbin`, `/usr/local/bin`,
-    `/opt/homebrew/bin`, requiring a non-group/world-writable file. A
-    root-owned install is preferred; accepting a user-owned Homebrew binary is a
-    documented residual trust because the helper runs it as root.
+  - macOS: the installer copies the installed OpenVPN binary to
+    `/Library/Application Support/OpenVPN Desktop/bin/openvpn` and makes it
+    root-owned. The helper requires a root-owned, non-group/world-writable
+    binary and refuses a user-owned Homebrew binary, so a compromised login
+    account cannot replace the daemon's executable.
   - Linux: root-owned fixed directories (see above).
 - Windows DNS uses the TAP-Windows6 driver plus
-  `--block-outside-dns --register-dns`; a Wintun-only setup may block non-tunnel
+  `--windows-driver tap --block-outside-dns --register-dns`; a Wintun-only setup may block non-tunnel
   DNS without applying pushed resolvers. Prefer TAP for DNS.
 - macOS DNS uses `networksetup` on the primary network service, saving and
   restoring the previous resolvers/search domains. `networksetup` is per
@@ -246,9 +250,16 @@ non-zero exit and an explanatory message.
 - Kill switch and per-app split tunneling are **Linux-only**. The GUI hides them
   on Windows/macOS and the service rejects them if requested; they are not
   silently emulated.
-- Code signing/notarization is a release step: sign the Windows GUI/helper and
-  install the service via a signed installer; sign/notarize the macOS helper and
-  ship a `.pkg` that installs the launchd daemon.
+- The GUI's one-click install runs only the bundled helper through UAC,
+  `osascript` administrator approval or `pkexec`; the helper then copies itself
+  to a privileged location and writes the token files. Windows upgrades stop
+  the old service and recreate it with the new binary.
+- Signed updates use an Ed25519 key pair: the public key is built into the app,
+  the private key lives only in CI secrets. Installed apps reject unsigned
+  manifests/archives.
+- Code signing/notarization is configured in the release workflow: Authenticode
+  for the Windows GUI/helper/installer and Developer ID + notarization for the
+  macOS app/helper. A public release must not ship unsigned binaries.
 
 ## Per-app split tunneling (Linux)
 

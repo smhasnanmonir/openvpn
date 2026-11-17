@@ -47,15 +47,15 @@ implemented.
 | Multiple profiles + selection | ✅ | Profile list, select/use, delete. |
 | Profile emoji | ✅ | Default emoji per import. |
 | Process-death recovery | ⚠️ | Bounded restart while the app runs; no boot auto-start. |
-| Auto-connect at launch | ✅ | XDG start-at-login entry (Linux) plus **Connect automatically after the vault is unlocked**. Windows/macOS use OS login items until a native autostart hook is added. The master password is not stored. |
+| Auto-connect at launch | ✅ | Start-at-login on Linux (XDG), Windows (per-user `Run` key) and macOS (LaunchAgent), plus **Connect automatically after the vault is unlocked**. The master password is never stored. |
 | “Require tunnel DNS” default ON | ✅ | Default ON. |
 | No analytics/backend | ✅ | Same privacy stance. |
 | Public-IP provider disclosed | ✅ | Settings URL + README. |
 | 16 KB pages / Android platform | ➖ | Android-only. |
 | Backend (#16) and iOS (#20) | ➖ | Out of scope for both clients. |
 
-| Windows privileged service | ✅ | `OpenVPNDesktopHelper` Windows service, LocalSystem, loopback token, TAP/OpenVPN 2.7+, PowerShell installer; cross-compiled/unit-tested, real-device tunnel pending. |
-| macOS privileged service | ✅ | launchd daemon, loopback token, `networksetup` DNS, shell installer; cross-compiled/unit-tested, real-device tunnel pending. |
+| Windows privileged service | ✅ | `OpenVPNDesktopHelper` Windows service, LocalSystem, loopback token, TAP/OpenVPN 2.7+, SID-based ACLs, NSIS installer hook and GUI one-click install; cross-compiled/installer-built, real-device tunnel pending. |
+| macOS privileged service | ✅ | launchd daemon, loopback token, root-owned OpenVPN copy, `networksetup` DNS, GUI one-click install; cross-compiled/app-built, real-device tunnel pending. |
 
 ## Parity rationale
 
@@ -79,8 +79,8 @@ implemented.
 - **Windows/macOS privilege.** Neither platform has a universal unprivileged
   TUN API. A privileged helper service authenticates a loopback job with a
   random token, re-sanitizes the profile and starts OpenVPN. The shared service
-  core is exercised on Linux; the platform wrappers/installers cross-compile but
-  still need a real device tunnel, signing and notarization.
+  core and packages are exercised on Linux; the platform wrappers/installers
+  build but still need a real device tunnel, signing and notarization.
 - **OpenVPN 3 Core vs OpenVPN 2.7.** The Android app uses a pinned Core with
   generated-header patches. The desktop uses the distribution's maintained
   OpenVPN, which is the right security-update story for a desktop; profile-level

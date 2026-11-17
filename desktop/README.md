@@ -1,17 +1,20 @@
 # OpenVPN Desktop
 
-A production-minded OpenVPN client for Linux, built in Go with
-[MyGo](https://mygo.run/) native UI. It is the desktop sibling of the Android
+A production-minded OpenVPN client for Linux, Windows and macOS, built in Go
+with [MyGo](https://mygo.run/) native UI. It is the desktop sibling of the Android
 client in [`../android`](../android): the same import, trust, DNS, MTU,
 compression/cipher, split-tunnel and logging policies, adapted to a desktop
 where OpenVPN runs as a privileged system process.
 
-> **Status: 1.0.0.** The GUI, encrypted vault, privileged helper, management
-> integration, DNS fail-closed policy, kill switch, tests and packaging are
-> implemented. A real tunnel has been verified end-to-end against a local
-> OpenVPN 2.7 server (TLS 1.3, certificate authentication, ping through the
-> tunnel, counters, clean disconnect). See [`docs/testing.md`](docs/testing.md).
-> It has not yet been independently penetration-tested or audited.
+> **Status: 1.0.0 release candidate.** The GUI, encrypted vault, privileged
+> helper, management integration, DNS fail-closed policy, kill switch,
+> one-click helper install, signed updates and packaging are implemented. A
+> real tunnel has been verified end-to-end on Linux against a local OpenVPN 2.7
+> server (TLS 1.3, certificate authentication, ping through the tunnel,
+> counters, clean disconnect). Windows and macOS cross-compile and their
+> installers build; real-device tunnel tests, code signing/notarization and an
+> independent audit remain release gates. See
+> [`docs/testing.md`](docs/testing.md) and [`docs/release.md`](docs/release.md).
 
 ---
 
@@ -31,17 +34,20 @@ where OpenVPN runs as a privileged system process.
 | Split tunneling | **Per-app** include/exclude on Linux (cgroup v2 + nftables marks + policy routing), plus route-based include/exclude networks and optional LAN bypass. New processes are moved into the rule by a one-second monitor; explicit leak/DNS warnings are shown. |
 | Kill switch | **Linux only:** opt-in nftables output policy that allows only loopback, the tunnel, DHCP, IPv6 neighbour discovery and the VPN server. A recovery command removes a stale table. |
 | Captive portal | Explicit connectivity probe (204 = internet, redirect/200 = portal); **Pause VPN and sign in**, opens a validated http(s) sign-in page, then **I signed in — reconnect** checks the network and reconnects. The tunnel is never shown as protected while paused. |
-| Tray and startup | System tray with Show/Connect/Disconnect/Quit, optional minimize-to-tray, XDG start-at-login entry on Linux, and auto-connect after the vault is unlocked (the master password is never stored). |
-| Windows/macOS | Privileged helper **service**: Windows `OpenVPNDesktopHelper` (LocalSystem) and a macOS launchd daemon; token-authenticated loopback jobs, shared sanitization, OpenVPN management and log streaming. Windows DNS uses TAP + `--block-outside-dns`; macOS DNS uses `networksetup`. |
+| Tray and startup | System tray with Show/Connect/Disconnect/Quit, optional minimize-to-tray, start-at-login on Linux (XDG), Windows (Run key) and macOS (LaunchAgent), and auto-connect after the vault is unlocked (the master password is never stored). |
+| Windows/macOS | Privileged helper **service**: Windows `OpenVPNDesktopHelper` (LocalSystem) and a macOS launchd daemon; token-authenticated loopback jobs, shared sanitization, OpenVPN management and log streaming. The helper is bundled with each installer and installed from the GUI with one administrator prompt. Windows DNS uses TAP + `--block-outside-dns`; macOS DNS uses `networksetup`. |
 | Privacy | No analytics, crash reporter, account or backend. The only network request besides the VPN is the optional public-IP check (`https://api.ipify.org` by default). |
 | Logs | In-memory 500-line ring buffer, credential/key lines redacted, copy/clear from the UI. Nothing is written to disk. |
-| UI | Native MyGo UI: Home, Profiles, Logs, Settings; desktop notifications; tray icon; menu shortcuts; light/dark/system theme. |
+| UI | Native MyGo UI: Home, Profiles, Logs, Settings; desktop notifications; tray icon; menu shortcuts; light/dark/system theme; signed auto-updates from `desktop-v*` releases. |
 
 ### Deliberate desktop differences
 
 - **Privileges.** OpenVPN creates a TUN device and changes routes/DNS, which
-  requires root. The GUI stays unprivileged and launches a root-owned helper via
-  polkit (`pkexec`), passwordless sudo or (discouraged) setuid.
+  requires root. The GUI stays unprivileged. Linux launches a root-owned helper
+  via polkit (`pkexec`), passwordless sudo or (discouraged) setuid; Windows uses
+  a LocalSystem service and macOS a launchd daemon. The GUI offers a one-click
+  **Install privileged helper** action that performs the single elevation
+  prompt.
 - **Per-app split tunneling** is implemented on Linux with cgroup v2,
   nftables marks and policy routing. New processes are moved into the rule by a
   one-second monitor. System-resolver DNS is kept on the VPN path; apps using
@@ -67,13 +73,17 @@ where OpenVPN runs as a privileged system process.
 ### Platform support
 
 - **Linux:** production target; per-app split tunneling, nftables kill switch,
-  XDG start-at-login, root helper, live-tunnel verified.
-- **Windows:** privileged service, TAP-Windows6/OpenVPN 2.7+, tray/captive
-  portal/public IP, route-based split; per-app/kill switch are Linux-only. Code
-  and installer are included; real-device tunnel verification remains.
-- **macOS:** launchd privileged helper, `networksetup` DNS, tray/captive
-  portal/public IP, route-based split; per-app/kill switch/XDG autostart are
-  Linux-only. Code and installer are included; real-device tunnel verification
+  XDG start-at-login, root helper, live-tunnel verified. Packages include the
+  helper and can install it through the GUI's polkit prompt.
+- **Windows:** LocalSystem helper service, TAP-Windows6/OpenVPN 2.7+, start at
+  login, tray/captive portal/public IP, route-based split; per-app/kill switch
+  are Linux-only. The NSIS installer includes the helper and starts the service
+  with UAC; the GUI offers the same install if it was skipped. Real-device
+  tunnel verification remains.
+- **macOS:** launchd privileged helper, root-owned OpenVPN copy,
+  `networksetup` DNS, start at login, tray/captive portal/public IP, route-based
+  split; per-app/kill switch are Linux-only. The app bundles the helper and
+  installs it with one administrator prompt. Real-device tunnel verification
   remains.
 
 Windows/macOS details, requirements and verification checklists:
@@ -83,17 +93,18 @@ Windows/macOS details, requirements and verification checklists:
 
 ## Requirements
 
-- Linux (the privileged path is implemented and tested on Linux).
-- Go 1.27+ to build from source.
-- **OpenVPN 2.7+** (`openvpn`), root-owned and not group/world writable.
-- `nft` for the kill switch (optional), and `resolvectl` or `resolvconf` for DNS
-  (or a writable `/etc/resolv.conf`).
-- For the native UI: GTK 3 runtime (MyGo draws the UI itself; no cgo).
-- `pkexec` (polkit) or `sudo` for the recommended privilege path.
+- Linux, Windows 10/11 or macOS 13+.
+- **OpenVPN 2.7+.** Linux: root-owned and not group/world writable. Windows:
+  the standard installer with TAP-Windows6 (required for pushed DNS). macOS:
+  Homebrew or official; the installer copies it into a root-owned location.
+- Go 1.27+ to build from source; the release installers do not need Go.
+- Linux: `nft` for the kill switch (optional), `resolvectl` or `resolvconf` for
+  DNS (or a writable `/etc/resolv.conf`), and `pkexec` (polkit) or `sudo`.
+- Native UI: MyGo draws the UI itself (no cgo); Linux needs the GTK 3 runtime.
 
-Windows and macOS use the privileged helper service described in
-[`docs/windows-macos.md`](docs/windows-macos.md). Their service wrappers and
-installers cross-compile; a real-device tunnel test is still required.
+Windows and macOS details, installers and verification checklists:
+[`docs/windows-macos.md`](docs/windows-macos.md). Release/signing steps:
+[`docs/release.md`](docs/release.md).
 
 ---
 
@@ -105,52 +116,50 @@ go test ./...
 go vet ./...
 go build ./...
 
-# development
-go tool mygo dev
-
-# packaged Linux app (binary, .deb, .rpm, tarball, icons)
+# bundle the helper for every target, then build the native app
+./scripts/build-helpers.sh
 go tool mygo build
-# output: build/linux-amd64/openvpn-desktop
+
+# development (uses the helper in resources/ when present)
+go tool mygo dev
 ```
 
-Install the privileged helper once (re-run after rebuilding it):
+Release flow, signing secrets and the platform verification checklist:
+[`docs/release.md`](docs/release.md).
+
+The packages contain the GUI **and** the platform helper. On first connect,
+open **Settings → Privileged helper** and press **Install privileged helper**.
+The app asks for administrator approval once, installs the helper in a
+privileged location and rechecks it without restarting. The helper writes its
+version next to the installed binary; after an app update, Settings shows
+**Update privileged helper** if the service is stale.
+
+- **Linux:** the `.deb`/`.rpm` place the root-owned helper in
+  `/opt/openvpn-desktop/`; the GUI uses `pkexec` to install a polkit action.
+  The portable tarball's helper is user-owned, so the GUI refuses to elevate it;
+  run `sudo ./scripts/install-helper.sh` once for that layout.
+- **Windows:** the NSIS installer starts the LocalSystem service with UAC; if it
+  is skipped, the GUI runs the bundled helper with `runas`.
+- **macOS:** the GUI runs the bundled helper with `osascript` administrator
+  approval, which installs a launchd daemon and a root-owned OpenVPN copy.
+
+Terminal fallbacks (also useful for source builds):
 
 ```bash
-cd desktop
-sudo ./scripts/install-helper.sh          # polkit if pkexec exists, else sudo
-# or choose explicitly:
-sudo ./scripts/install-helper.sh polkit
-sudo ./scripts/install-helper.sh sudo
-```
+# Linux
+cd desktop && sudo ./scripts/install-helper.sh
 
-On Windows, run an elevated PowerShell:
+# macOS
+cd desktop && sudo ./scripts/install-macos-service.sh
 
-```powershell
+# Windows (elevated PowerShell)
 powershell -ExecutionPolicy Bypass -File desktop\scripts\install-windows-service.ps1
 ```
 
-On macOS:
-
-```bash
-sudo desktop/scripts/install-macos-service.sh
-```
-
-The installer:
-
-1. builds `cmd/openvpn-desktop-helper` and installs it to
-   `/usr/local/libexec/openvpn-desktop/`;
-2. installs either a polkit action that runs **only that binary** through
-   `pkexec`, or a sudoers rule that allows `sudo -n` to run **only that binary**;
-3. prints `openvpn-desktop-helper doctor` output.
-
-`setuid` is available for minimal systems but discouraged; see
-[`SECURITY.md`](SECURITY.md).
-
-Remove it with:
-
-```bash
-sudo ./scripts/uninstall-helper.sh
-```
+The Linux installer chooses polkit or passwordless sudo; `setuid` is available
+for minimal systems but discouraged. See [`SECURITY.md`](SECURITY.md). Remove
+the Linux helper with `sudo ./scripts/uninstall-helper.sh`; Windows and macOS
+installers call the helper's `uninstall-service --purge` path.
 
 Run the app:
 
@@ -163,9 +172,9 @@ its certificate/key files, if it references them) from **Profiles → Import
 .ovpn**, enter credentials if the profile needs them, and press **Connect**.
 
 For unattended launch, use `--autoconnect` (or
-`OPENVPN_DESKTOP_AUTOCONNECT=1`) and **Install start at login** in Settings. The
-app opens locked; the tunnel connects only after you unlock it. The master
-password is never stored.
+`OPENVPN_DESKTOP_AUTOCONNECT=1`) and **Install start at login** in Settings
+(Linux XDG, Windows Run key, macOS LaunchAgent). The app opens locked; the
+tunnel connects only after you unlock it. The master password is never stored.
 
 Data lives in `$XDG_CONFIG_HOME/openvpn-desktop` (normally
 `~/.config/openvpn-desktop`). `OPENVPN_DESKTOP_DATA_DIR` overrides it.
@@ -178,7 +187,7 @@ runs; do not use it on a shared machine.
 
 ```bash
 cd desktop
-go test ./...                # 92 test functions across 14 packages
+go test ./...                # 102 test functions across 15 packages
 go vet ./...
 go build ./...
 go tool mygo build

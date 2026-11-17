@@ -6,7 +6,7 @@ security model:
 | Client | Platform | Stack | Location |
 |---|---|---|---|
 | **OpenVPN for Android** | Android 8+ | Kotlin, Jetpack Compose, `VpnService`, OpenVPN 3 Core 3.9 via JNI | [`android/`](android/) |
-| **OpenVPN Desktop** | Linux (Windows/macOS compile) | Go 1.27+, [MyGo](https://mygo.run/) native UI, system OpenVPN 2.7+ | [`desktop/`](desktop/) |
+| **OpenVPN Desktop** | Linux, Windows 10/11, macOS 13+ | Go 1.27+, [MyGo](https://mygo.run/) native UI, system OpenVPN 2.7+ | [`desktop/`](desktop/) |
 
 Both clients import user-supplied `.ovpn` profiles, require a verifiable server
 trust anchor, store profiles/credentials encrypted, fail closed on DNS leaks,
@@ -31,29 +31,39 @@ device/store checklist: [`android/README.md`](android/README.md) and
 ```bash
 cd desktop
 go test ./... && go vet ./... && go build ./...
-go tool mygo build              # build/linux-amd64/openvpn-desktop
-sudo ./scripts/install-helper.sh   # polkit (recommended) or sudo
+./scripts/build-helpers.sh       # helper for every platform
+go tool mygo build               # Linux packages, Windows installer, macOS app
 ./build/linux-amd64/openvpn-desktop
 ```
+
+The packaged app contains the GUI and the privileged helper. On first launch,
+open **Settings → Privileged helper → Install privileged helper**; one
+administrator prompt installs it. Terminal fallbacks are
+`sudo ./scripts/install-helper.sh` (Linux),
+`sudo ./scripts/install-macos-service.sh` (macOS) and the elevated PowerShell
+installer (Windows).
 
 A real tunnel can be verified without a provider:
 
 ```bash
 cd desktop
 sudo ./scripts/test-live-tunnel.sh
+sudo ./scripts/test-per-app-split.sh
 ```
 
 Details, security model, parity matrix and verification:
 [`desktop/README.md`](desktop/README.md),
 [`desktop/SECURITY.md`](desktop/SECURITY.md),
-[`desktop/docs/`](desktop/docs/).
+[`desktop/docs/release.md`](desktop/docs/release.md),
+[`desktop/docs/windows-macos.md`](desktop/docs/windows-macos.md),
+[`desktop/docs/testing.md`](desktop/docs/testing.md).
 
 ## Repository layout
 
 ```
 android/    Android client (Gradle, Kotlin, native OpenVPN 3 Core submodule)
-desktop/    Linux/desktop client (Go, MyGo, privileged helper)
-.github/    CI: android.yml, desktop.yml, security.yml, dependabot.yml
+desktop/    Linux/Windows/macOS client (Go, MyGo, privileged helper)
+.github/    CI: android.yml, desktop.yml, desktop-release.yml, security.yml, dependabot.yml
 LICENSE     AGPL-3.0
 ```
 
@@ -77,4 +87,6 @@ public issue.
 ## License
 
 AGPL-3.0. See [`LICENSE`](LICENSE). The Android client embeds OpenVPN 3 Core
-under its upstream license; desktop packages use the distribution's OpenVPN.
+under its upstream license; desktop packages use the system OpenVPN. Desktop
+third-party notices are in
+[`desktop/THIRD_PARTY_NOTICES.md`](desktop/THIRD_PARTY_NOTICES.md).
