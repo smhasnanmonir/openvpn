@@ -20,7 +20,7 @@ func TestModeFromMarker(t *testing.T) {
 		"direct":   PrivilegeDirect,
 	}
 	for content, want := range cases {
-		if err := os.WriteFile(filepath.Join(dir, "privilege-mode"), []byte(content), 0o444); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, "privilege-mode"), []byte(content), 0o644); err != nil {
 			t.Fatal(err)
 		}
 		got, ok := modeFromMarker(helper)
@@ -28,7 +28,7 @@ func TestModeFromMarker(t *testing.T) {
 			t.Fatalf("modeFromMarker(%q) = %q,%v; want %q", content, got, ok, want)
 		}
 	}
-	if err := os.WriteFile(filepath.Join(dir, "privilege-mode"), []byte("nonsense"), 0o444); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "privilege-mode"), []byte("nonsense"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := modeFromMarker(helper); ok {
