@@ -423,15 +423,21 @@ jobs:
           cache-dependency-path: desktop/go.sum
       - name: Set release version
         run: python3 scripts/set-version.py "$TAG"
-      - name: Require signing and notarization secrets for a tag
+      - name: Check release secrets for a tag
         if: github.ref_type == 'tag'
         run: |
           test -n "$MYGO_UPDATER_PRIVATE_KEY" || { echo "::error::set MYGO_UPDATER_PRIVATE_KEY"; exit 1; }
-          test -n "$MACOS_CERT_P12_BASE64" || { echo "::error::set MACOS_CERT_P12_BASE64"; exit 1; }
-          test -n "$MACOS_SIGNING_IDENTITY" || { echo "::error::set MACOS_SIGNING_IDENTITY"; exit 1; }
-          test -n "$MACOS_NOTARY_APPLE_ID" || { echo "::error::set MACOS_NOTARY_APPLE_ID"; exit 1; }
-          test -n "$MACOS_NOTARY_TEAM_ID" || { echo "::error::set MACOS_NOTARY_TEAM_ID"; exit 1; }
-          test -n "$MACOS_NOTARY_PASSWORD" || { echo "::error::set MACOS_NOTARY_PASSWORD"; exit 1; }
+          # Developer ID signing and notarization need a paid Apple account. The
+          # job still builds so the rest of the release can ship; the disk image
+          # is then marked unsigned and kept out of the release assets, because
+          # Gatekeeper blocks an unsigned app for everyone else.
+          missing=""
+          for name in MACOS_CERT_P12_BASE64 MACOS_SIGNING_IDENTITY MACOS_NOTARY_APPLE_ID MACOS_NOTARY_TEAM_ID MACOS_NOTARY_PASSWORD; do
+            test -n "${!name}" || missing="$missing $name"
+          done
+          if [[ -n "$missing" ]]; then
+            echo "::warning title=Unsigned macOS build::No Apple Developer ID secrets; the disk image will be built but not published:$missing"
+          fi
       - name: Import Developer ID certificate and notary credentials
         if: env.MACOS_CERT_P12_BASE64 != ''
         run: |
@@ -491,6 +497,13 @@ jobs:
       - name: Remove the temporary keychain
         if: always() && env.MACOS_CERT_P12_BASE64 != ''
         run: security delete-keychain "$RUNNER_TEMP/app-signing.keychain-db" || true
+      - name: Mark an unsigned disk image
+        if: env.MACOS_CERT_P12_BASE64 == ''
+        run: |
+          set -euo pipefail
+          test -d build/darwin-universal
+          printf 'Built without Developer ID signing or notarization.\n' > build/darwin-universal/UNSIGNED.txt
+
       - uses: actions/upload-artifact@v7
         with:
           name: desktop-macos
@@ -512,10 +525,21 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p release-assets
+          unsigned_macos=0
+          if [[ -n "$(find dist -name UNSIGNED.txt -print -quit)" ]]; then
+            unsigned_macos=1
+            echo "Skipping the macOS disk image: it is not signed or notarized."
+          fi
           while IFS= read -r -d '' f; do
             base="$(basename "$f")"
             case "$base" in
-              *.tar.gz|*.deb|*.rpm|*.dmg|*-setup-*.exe|update-*.json|*.delta|install.ps1|PKGBUILD|openvpn-desktop-helper.exe|sbom.cdx.json)
+              *.dmg)
+                if [[ $unsigned_macos -eq 1 ]]; then
+                  continue
+                fi
+                cp "$f" "release-assets/$base"
+                ;;
+              *.tar.gz|*.deb|*.rpm|*-setup-*.exe|update-*.json|*.delta|install.ps1|PKGBUILD|openvpn-desktop-helper.exe|sbom.cdx.json)
                 cp "$f" "release-assets/$base"
                 ;;
               install.sh)
