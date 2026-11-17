@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/egoist/mygo"
+	"github.com/egoist/mygo/plugins/updater"
 	"github.com/egoist/mygo/ui"
 
 	"github.com/smhasnanmonir/openvpn/desktop/internal/app"
@@ -235,6 +237,10 @@ func (a *App) warningsCard(c *ui.Context) {
 	if !a.helper.Available {
 		warnings = append([]string{"The privileged helper is not ready. " + a.helper.Detail}, warnings...)
 	}
+	if a.helper.VersionMismatch {
+		warnings = append([]string{fmt.Sprintf("The installed privileged helper is version %s, but this app is %s. Update it in Settings.",
+			a.helper.InstalledVersion, mygo.App.Version())}, warnings...)
+	}
 	if len(warnings) == 0 {
 		return
 	}
@@ -244,6 +250,18 @@ func (a *App) warningsCard(c *ui.Context) {
 				ui.Text(c, "!").Bold().TextColor(t.Warning).Width(12)
 				ui.Text(c, w).FontSize(12).TextColor(t.Warning).Wrap()
 			})
+		}
+		if (!a.helper.Available && a.helper.InstallAvailable) || (a.helper.VersionMismatch && a.helper.InstallAvailable) {
+			ui.Row(c).Gap(8).Children(func() {
+				if ui.PrimaryButton(c, "Install privileged helper").Clicked() {
+					a.InstallHelper()
+				}
+				ui.Text(c, "One administrator prompt; the app rechecks without restarting.").
+					FontSize(11).TextColor(t.TextMuted)
+			})
+		}
+		if a.helperError != "" {
+			ui.Text(c, a.helperError).FontSize(11).TextColor(t.Danger).Wrap()
 		}
 	})
 }
@@ -584,6 +602,17 @@ func (a *App) settings(c *ui.Context) {
 			ui.Select(c, &a.themeMode, []string{"System", "Light", "Dark"}).Width(180)
 		})
 
+		a.card(c, "Updates", func() {
+			ui.Text(c, "Version "+mygo.App.Version()).FontSize(12)
+			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+				if ui.Button(c, "Check for updates").Clicked() {
+					updater.CheckForUpdates()
+				}
+				ui.Text(c, "Updates are signed and installed from desktop-v* releases.").
+					FontSize(11).TextColor(t.TextMuted)
+			})
+		})
+
 		a.card(c, "Startup and system tray", func() {
 			ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
 				ui.Switch(c, &a.minimizeTray)
@@ -606,7 +635,7 @@ func (a *App) settings(c *ui.Context) {
 				status = "installed for this user"
 			}
 			if !autostart.Supported() {
-				ui.Text(c, "Start at login is implemented for Linux (XDG autostart).").
+				ui.Text(c, "Start at login is not supported on this platform.").
 					FontSize(12).TextColor(t.TextMuted).Wrap()
 			} else {
 				ui.Text(c, "Start at login: "+status).FontSize(12).TextColor(t.TextMuted)
@@ -647,9 +676,45 @@ func (a *App) settings(c *ui.Context) {
 
 		a.card(c, "Privileged helper", func() {
 			ui.Text(c, app.HelperHint(a.helper)).FontSize(12).Wrap()
-			if ui.Button(c, "Copy setup command").Clicked() {
-				c.WriteClipboard("cd desktop && ./scripts/install-helper.sh")
-				a.setToast("Setup command copied.")
+			ui.Row(c).Gap(8).Wrap().Children(func() {
+				if a.helper.InstallAvailable {
+					label := "Install privileged helper"
+					if a.helper.VersionMismatch {
+						label = "Update privileged helper"
+					}
+					if ui.PrimaryButton(c, label).Clicked() {
+						a.InstallHelper()
+					}
+				}
+				if ui.Button(c, "Recheck").Clicked() {
+					a.recheckHelper()
+					if a.helper.Available {
+						a.setToast("Privileged helper is ready.")
+					} else {
+						a.setToast("Helper still not ready: " + a.helper.Detail)
+					}
+				}
+				if cmd := app.HelperSetupCommand(a.helper); cmd != "" && !a.helper.InstallAvailable {
+					if ui.Button(c, "Copy setup command").Clicked() {
+						c.WriteClipboard(cmd)
+						a.setToast("Setup command copied.")
+					}
+				}
+			})
+			if a.helper.InstalledVersion != "" {
+				ui.Text(c, fmt.Sprintf("Installed helper version: %s. App version: %s.",
+					a.helper.InstalledVersion, mygo.App.Version())).FontSize(11).TextColor(t.TextMuted)
+			}
+			if a.helper.InstallAvailable {
+				ui.Text(c, "Installing asks for administrator approval once, then the helper starts connections for "+
+					"this user. The helper binary is installed in a privileged location and the GUI never runs as root.").
+					FontSize(11).TextColor(t.TextMuted).Wrap()
+			} else if a.helper.VersionMismatch {
+				ui.Text(c, "Update the system package, or run sudo scripts/install-helper.sh, to replace the stale helper.").
+					FontSize(11).TextColor(t.Warning).Wrap()
+			}
+			if a.helperError != "" {
+				ui.Text(c, a.helperError).FontSize(11).TextColor(t.Danger).Wrap()
 			}
 		})
 

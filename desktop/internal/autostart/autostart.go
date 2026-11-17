@@ -1,3 +1,5 @@
+//go:build linux
+
 // Package autostart manages an XDG autostart entry so the app opens after the
 // user logs in. It deliberately does not store the vault password: the app
 // starts locked, and --autoconnect only connects after the user unlocks it.
@@ -8,15 +10,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 )
 
-// Supported reports whether XDG autostart applies to this platform. The Linux
-// client is the supported production target; Windows/macOS launch-at-login
-// needs their own service/agent work and is intentionally not faked with an
-// XDG file.
-func Supported() bool { return runtime.GOOS == "linux" }
+// Supported reports whether XDG autostart applies to this platform.
+func Supported() bool { return true }
 
 // Path returns the per-user autostart desktop entry.
 func Path() (string, error) {

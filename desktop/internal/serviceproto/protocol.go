@@ -94,8 +94,12 @@ func UserPath() (string, error) {
 	return filepath.Join(dir, "openvpn-desktop", "service.json"), nil
 }
 
-// SystemPath is the root-owned service config path.
+// SystemPath is the root-owned service config path. Tests and portable
+// installs may override it with OPENVPN_DESKTOP_SYSTEM_CONFIG.
 func SystemPath() (string, error) {
+	if p := os.Getenv("OPENVPN_DESKTOP_SYSTEM_CONFIG"); p != "" {
+		return p, nil
+	}
 	switch runtime.GOOS {
 	case "windows":
 		base := os.Getenv("ProgramData")

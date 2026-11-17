@@ -22,7 +22,7 @@ func TestFindServiceHelper(t *testing.T) {
 	if err := serviceproto.Save(path, serviceproto.Config{Addr: "127.0.0.1:51940", Token: token}); err != nil {
 		t.Fatal(err)
 	}
-	info := findServiceHelper()
+	info := findServiceHelper(".")
 	if !info.Available || info.Mode != PrivilegeService || info.ServiceAddr != "127.0.0.1:51940" || info.ServiceToken != token {
 		t.Fatalf("info = %+v", info)
 	}
@@ -34,7 +34,7 @@ func TestFindServiceHelper(t *testing.T) {
 func TestFindServiceHelperMissing(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", dir)
-	info := findServiceHelper()
+	info := findServiceHelper(".")
 	if info.Available {
 		t.Fatalf("a missing service config was accepted: %+v", info)
 	}

@@ -32,6 +32,10 @@ func ServeContext(ctx context.Context, configPath string) error {
 	if err != nil {
 		return err
 	}
+	// Recover resolver state left by an earlier crash before accepting jobs.
+	if err := ensureStateDir(); err == nil {
+		restoreStaleDNS()
+	}
 	host, _, err := net.SplitHostPort(cfg.Addr)
 	if err != nil {
 		return err

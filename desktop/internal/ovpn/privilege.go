@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/smhasnanmonir/openvpn/desktop/internal/serviceinstall"
 	"github.com/smhasnanmonir/openvpn/desktop/internal/serviceproto"
 )
 
@@ -24,23 +25,134 @@ const (
 
 // HelperInfo describes how the GUI will launch the privileged helper.
 type HelperInfo struct {
-	Path         string
-	Mode         PrivilegeMode
-	Available    bool
-	Detail       string
-	ServiceAddr  string
-	ServiceToken string
+	Path             string
+	Mode             PrivilegeMode
+	Available        bool
+	Detail           string
+	ServiceAddr      string
+	ServiceToken     string
+	SelfDir          string
+	ResourcesDir     string
+	BundledPath      string
+	InstallAvailable bool
+	InstalledVersion string
+	VersionMismatch  bool
 }
 
 // FindHelper locates the helper binary and decides how to run it. The helper
 // must be root-owned and either setuid, launched by pkexec, or launched with
 // passwordless sudo. The GUI never runs openvpn itself when unprivileged.
-func FindHelper(selfDir string) HelperInfo {
+// resourcesDirs may name the packaged resource directory; selfDir and the
+// standard macOS bundle location are tried when it is empty.
+func FindHelper(selfDir string, resourcesDirs ...string) HelperInfo {
+	info := findHelper(selfDir, resolveResourceDir(selfDir, resourcesDirs))
+	info.SelfDir = selfDir
+	info.ResourcesDir = resolveResourceDir(selfDir, resourcesDirs)
+	if info.BundledPath == "" {
+		info.BundledPath = findBundledHelper(info.ResourcesDir)
+	}
+	info.InstalledVersion = installedHelperVersion(info)
+	if info.BundledPath != "" {
+		if !info.Available {
+			info.InstallAvailable = installSupported(info.BundledPath)
+			if info.Detail == "" {
+				info.Detail = "the privileged helper is not installed yet"
+			}
+		}
+		if appVersion != "" && info.InstalledVersion != "" && info.InstalledVersion != appVersion {
+			info.VersionMismatch = true
+			info.InstallAvailable = installSupported(info.BundledPath)
+		}
+	}
+	return info
+}
+
+var appVersion string
+
+// SetAppVersion lets helper discovery detect a stale installed helper after
+// an app update. It is called once at startup.
+func SetAppVersion(v string) { appVersion = v }
+
+func installedHelperVersion(info HelperInfo) string {
+	if info.Path != "" {
+		if v := readHelperVersion(filepath.Join(filepath.Dir(info.Path), "helper.version")); v != "" {
+			return v
+		}
+	}
+	if v := serviceinstall.InstalledVersion(); v != "" {
+		return v
+	}
+	if info.Mode == PrivilegeService && info.Available {
+		// A service installed before version tracking. Prompt for an update
+		// so it cannot stay silently stale.
+		return "unknown"
+	}
+	if info.BundledPath != "" {
+		if v := readHelperVersion(filepath.Join(filepath.Dir(info.BundledPath), "helper.version")); v != "" {
+			return v
+		}
+	}
+	if info.Available {
+		return "unknown"
+	}
+	return ""
+}
+
+func readHelperVersion(path string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
+}
+
+func resolveResourceDir(selfDir string, resourcesDirs []string) string {
+	for _, d := range resourcesDirs {
+		if d != "" {
+			return d
+		}
+	}
+	if d := os.Getenv("OPENVPN_DESKTOP_RESOURCES"); d != "" {
+		return d
+	}
+	if runtime.GOOS == "darwin" {
+		bundle := filepath.Clean(filepath.Join(selfDir, "..", "Resources"))
+		if st, err := os.Stat(bundle); err == nil && st.IsDir() {
+			return bundle
+		}
+	}
+	if st, err := os.Stat(filepath.Join(selfDir, "resources")); err == nil && st.IsDir() {
+		return filepath.Join(selfDir, "resources")
+	}
+	if st, err := os.Stat("resources"); err == nil && st.IsDir() {
+		abs, _ := filepath.Abs("resources")
+		return abs
+	}
+	return selfDir
+}
+
+func findBundledHelper(dir string) string {
+	if dir == "" {
+		return ""
+	}
+	name := "openvpn-desktop-helper"
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	for _, p := range []string{filepath.Join(dir, name), filepath.Join(dir, "bin", name)} {
+		if st, err := os.Stat(p); err == nil && st.Mode().IsRegular() {
+			return p
+		}
+	}
+	return ""
+}
+
+func findHelper(selfDir, resourcesDir string) HelperInfo {
 	if addr, token := os.Getenv("OPENVPN_DESKTOP_SERVICE_ADDR"), os.Getenv("OPENVPN_DESKTOP_SERVICE_TOKEN"); addr != "" && token != "" {
 		return HelperInfo{Mode: PrivilegeService, ServiceAddr: addr, ServiceToken: token, Available: true, Detail: "helper service from the environment"}
 	}
 	if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
-		return findServiceHelper()
+		return findServiceHelper(resourcesDir)
 	}
 	if env := os.Getenv("OPENVPN_DESKTOP_HELPER"); env != "" {
 		if st, err := os.Stat(env); err == nil && !st.IsDir() {
@@ -51,7 +163,8 @@ func FindHelper(selfDir string) HelperInfo {
 
 	candidates := []string{
 		filepath.Join(selfDir, "openvpn-desktop-helper"),
-		filepath.Join(selfDir, "bin", "openvpn-desktop-helper"),
+		filepath.Join(resourcesDir, "openvpn-desktop-helper"),
+		"/opt/openvpn-desktop/openvpn-desktop-helper",
 		"/usr/local/libexec/openvpn-desktop/openvpn-desktop-helper",
 		"/usr/libexec/openvpn-desktop/openvpn-desktop-helper",
 	}
@@ -66,7 +179,15 @@ func FindHelper(selfDir string) HelperInfo {
 		}
 	}
 	if helper == "" {
-		return HelperInfo{Detail: "the privileged helper is not installed; run desktop/scripts/install-helper.sh"}
+		bundled := findBundledHelper(resourcesDir)
+		return HelperInfo{Detail: "the privileged helper is not installed", BundledPath: bundled}
+	}
+	if os.Geteuid() != 0 && !helperRootOwned(helper) {
+		return HelperInfo{
+			Path:        helper,
+			Detail:      "the helper is user-writable; install the system package or run scripts/install-helper.sh as root",
+			BundledPath: helper,
+		}
 	}
 
 	if os.Geteuid() == 0 {
@@ -136,19 +257,20 @@ func modeFromMarker(helper string) (PrivilegeMode, bool) {
 	}
 }
 
-func findServiceHelper() HelperInfo {
+func findServiceHelper(resourcesDir string) HelperInfo {
+	bundled := findBundledHelper(resourcesDir)
 	path, err := serviceproto.UserPath()
 	if err != nil {
-		return HelperInfo{Detail: "cannot locate the helper service configuration: " + err.Error()}
+		return HelperInfo{Detail: "cannot locate the helper service configuration: " + err.Error(), BundledPath: bundled}
 	}
 	cfg, err := serviceproto.Load(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return HelperInfo{Detail: "the privileged helper service is not installed; run the platform service installer"}
+			return HelperInfo{Detail: "the privileged helper service is not installed", BundledPath: bundled}
 		}
-		return HelperInfo{Detail: "cannot read the helper service configuration: " + err.Error()}
+		return HelperInfo{Detail: "cannot read the helper service configuration: " + err.Error(), BundledPath: bundled}
 	}
-	return HelperInfo{Mode: PrivilegeService, ServiceAddr: cfg.Addr, ServiceToken: cfg.Token, Available: true, Detail: "via the installed helper service"}
+	return HelperInfo{Mode: PrivilegeService, ServiceAddr: cfg.Addr, ServiceToken: cfg.Token, Available: true, Detail: "via the installed helper service", BundledPath: bundled}
 }
 
 // Command builds the exec.Cmd that launches the helper. The helper replaces

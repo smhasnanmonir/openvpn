@@ -143,7 +143,7 @@ func TestReadBoundedRegularRejectsSymlinkAndWritable(t *testing.T) {
 	}
 	link := filepath.Join(dir, "link.ovpn")
 	if err := os.Symlink(real, link); err != nil {
-		t.Fatal(err)
+		t.Skipf("symlinks are unavailable: %v", err)
 	}
 	if _, err := readBoundedRegular(link, 1<<20); err == nil {
 		t.Fatal("a symlink must be rejected")

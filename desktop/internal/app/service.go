@@ -89,7 +89,18 @@ func New(v *vault.Vault, dataDir string, helper ovpn.HelperInfo, notifier Notifi
 func (s *Service) Vault() *vault.Vault { return s.vault }
 
 // Helper returns how the privileged helper will be launched.
-func (s *Service) Helper() ovpn.HelperInfo { return s.helper }
+func (s *Service) Helper() ovpn.HelperInfo {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.helper
+}
+
+// SetHelper updates the helper discovery after a successful install.
+func (s *Service) SetHelper(h ovpn.HelperInfo) {
+	s.mu.Lock()
+	s.helper = h
+	s.mu.Unlock()
+}
 
 // Snapshot returns a copy of the current UI state.
 func (s *Service) Snapshot() model.Snapshot {
@@ -448,7 +459,7 @@ func (s *Service) launch(ctx context.Context, stored model.StoredProfile, creds 
 	s.setState(model.StateConnecting, "")
 	cfg := s.vault.Settings()
 	spec := ovpn.Spec{
-		Helper:            s.helper,
+		Helper:            s.Helper(),
 		Config:            runtimeConfig,
 		Credentials:       creds,
 		Settings:          cfg,
@@ -751,15 +762,26 @@ func HelperHint(helper ovpn.HelperInfo) string {
 		return "Privileged helper: " + helper.Path + " (" + string(helper.Mode) + ")"
 	}
 	hint := "The privileged helper is not ready: " + helper.Detail
+	if helper.InstallAvailable {
+		switch runtime.GOOS {
+		case "windows":
+			return hint + "\nClick Install privileged helper below. Windows will ask for administrator approval; " +
+				"install OpenVPN 2.7+ with the TAP-Windows6 driver first."
+		case "darwin":
+			return hint + "\nClick Install privileged helper below. macOS will ask for administrator approval; " +
+				"install OpenVPN 2.7+ (Homebrew or official) first."
+		default:
+			return hint + "\nClick Install privileged helper below. polkit will ask for administrator approval."
+		}
+	}
 	switch runtime.GOOS {
 	case "windows":
-		hint += "\nRun the Windows service installer from an elevated PowerShell: " +
-			"scripts\\install-windows-service.ps1. Install OpenVPN 2.7+ with the TAP-Windows6 driver first."
+		hint += "\nInstall the packaged helper, or run the Windows service installer from an elevated PowerShell. " +
+			"Install OpenVPN 2.7+ with the TAP-Windows6 driver first."
 	case "darwin":
 		hint += "\nRun: sudo ./scripts/install-macos-service.sh. A root-owned OpenVPN 2.7+ binary is required."
 	default:
-		hint += "\nRun desktop/scripts/install-helper.sh once, then restart the app. " +
-			"Without it the app cannot create a TUN device."
+		hint += "\nRun desktop/scripts/install-helper.sh once. Without it the app cannot create a TUN device."
 	}
 	return hint
 }

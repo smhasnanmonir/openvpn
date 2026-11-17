@@ -67,11 +67,18 @@ func Main(args []string, env []string) int {
 	case "kill-switch-down", "cleanup":
 		_ = RemoveKillSwitch()
 		_ = restoreResolvBackup()
+		restoreStaleDNS()
 		cleanupStaleSplits()
 		removeStaleSessions()
 		return 0
+	case "install", "install-service":
+		return installCommand(args[1:], false)
+	case "uninstall", "uninstall-service":
+		return installCommand(args[1:], true)
 	case "serve":
 		return serveCommand(args[1:])
+	case "version", "--version":
+		return versionCommand()
 	case "doctor":
 		printDoctor()
 		return 0
@@ -86,6 +93,8 @@ func usage() {
 
 commands:
   run [options]            sanitize a profile and run openvpn as root
+  install-service          install the platform privileged helper (root/admin)
+  uninstall-service        remove the platform privileged helper
   dns-up                   apply the DNS policy from OpenVPN's script environment
   dns-down                 restore DNS
   kill-switch-up <ips>     install the nftables kill switch

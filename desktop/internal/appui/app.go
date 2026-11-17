@@ -32,10 +32,13 @@ func (e perAppEntry) Name() string { return filepath.Base(e.Path) }
 
 // App is the state of the single window.
 type App struct {
-	win       *mygo.Window
-	vaultPath string
-	dataDir   string
-	helper    ovpn.HelperInfo
+	win          *mygo.Window
+	vaultPath    string
+	dataDir      string
+	helper       ovpn.HelperInfo
+	selfDir      string
+	resourcesDir string
+	helperError  string
 
 	svc      *app.Service
 	unlocked bool
@@ -122,6 +125,35 @@ func New(vaultPath, dataDir string, helper ovpn.HelperInfo, autoConnect ...bool)
 
 // SetWindow stores the window used for dialogs and background updates.
 func (a *App) SetWindow(w *mygo.Window) { a.win = w }
+
+// SetPaths records where the executable and packaged resources live, so the
+// helper can be reinstalled or rediscovered without restarting the app.
+func (a *App) SetPaths(selfDir, resourcesDir string) {
+	a.selfDir = selfDir
+	a.resourcesDir = resourcesDir
+}
+
+// InstallHelper runs the one-time elevation flow and refreshes discovery.
+func (a *App) InstallHelper() {
+	a.helperError = ""
+	if err := ovpn.InstallHelper(a.helper); err != nil {
+		a.helperError = err.Error()
+		return
+	}
+	a.recheckHelper()
+	if !a.helper.Available {
+		a.helperError = "The installer finished but the helper is still not ready: " + a.helper.Detail
+		return
+	}
+	a.setToast("Privileged helper installed.")
+}
+
+func (a *App) recheckHelper() {
+	a.helper = ovpn.FindHelper(a.selfDir, a.resourcesDir)
+	if a.svc != nil {
+		a.svc.SetHelper(a.helper)
+	}
+}
 
 // OpenImportDialog is the menu entry point.
 func (a *App) OpenImportDialog() { a.openImportDialog() }

@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 
 	"github.com/egoist/mygo"
+	"github.com/egoist/mygo/plugins/updater"
+	updaternative "github.com/egoist/mygo/plugins/updater/native"
 	"github.com/egoist/mygo/ui"
 	xdraw "golang.org/x/image/draw"
 
@@ -24,6 +26,8 @@ import (
 var appIconPNG []byte
 
 func main() {
+	mygo.Use(updaternative.Plugin)
+
 	// ContinueOnError keeps a GUI launch working when the desktop passes an
 	// argument this app does not know (for example macOS's old -psn_… token).
 	flags := flag.NewFlagSet("openvpn-desktop", flag.ContinueOnError)
@@ -36,9 +40,12 @@ func main() {
 	if err := app.EnsureDataDir(dataDir); err != nil {
 		log.Fatalf("cannot create data directory %s: %v", dataDir, err)
 	}
-	helper := ovpn.FindHelper(executableDir())
+	resources := resourceDir()
+	ovpn.SetAppVersion(mygo.App.Version())
+	helper := ovpn.FindHelper(executableDir(), resources)
 	vaultPath := filepath.Join(dataDir, "vault.ovpnx")
 	a := appui.New(vaultPath, dataDir, helper, autoConnect)
+	a.SetPaths(executableDir(), resources)
 
 	mygo.App.OnBeforeQuit(func(*mygo.QuitEvent) { a.ForceQuit() })
 
@@ -52,6 +59,8 @@ func main() {
 				{Label: "Lock Vault", Accelerator: "CmdOrCtrl+L", Click: func(*mygo.MenuItem, *mygo.Window) {
 					a.LockVault()
 				}},
+				mygo.Separator(),
+				updater.MenuItem(),
 				mygo.Separator(),
 				{Label: "Quit", Accelerator: "CmdOrCtrl+Q", Click: func(*mygo.MenuItem, *mygo.Window) {
 					a.Quit()
@@ -127,12 +136,45 @@ func resolveDataDir() string {
 	return filepath.Join(base, "openvpn-desktop")
 }
 
+func resourceDir() string {
+	exeDir := executableDir()
+	if p, err := mygo.App.Path(mygo.PathResources); err == nil && p != "" {
+		// A packaged Linux app is launched through /usr/bin/openvpn-desktop,
+		// a symlink into /opt; MyGo can then report /usr/bin as the resource
+		// directory. Prefer the directory that actually holds the app files.
+		if st, statErr := os.Stat(filepath.Join(p, "openvpn-desktop-helper")); statErr == nil && !st.IsDir() {
+			return p
+		}
+		if p == exeDir {
+			return p
+		}
+	}
+	if st, err := os.Stat(filepath.Join(exeDir, "openvpn-desktop-helper")); err == nil && !st.IsDir() {
+		return exeDir
+	}
+	if st, err := os.Stat("resources"); err == nil && st.IsDir() {
+		if abs, err := filepath.Abs("resources"); err == nil {
+			return abs
+		}
+	}
+	return exeDir
+}
+
+func dirForExecutable(exe string) string {
+	// Resolve /usr/bin/openvpn-desktop -> /opt/openvpn-desktop/openvpn-desktop
+	// so resources and the bundled helper are found in the real app directory.
+	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
+		exe = resolved
+	}
+	return filepath.Dir(exe)
+}
+
 func executableDir() string {
 	exe, err := os.Executable()
 	if err != nil {
 		return "."
 	}
-	return filepath.Dir(exe)
+	return dirForExecutable(exe)
 }
 
 // trayIcon scales the embedded 1024 px app icon to the 32 px the tray expects.
