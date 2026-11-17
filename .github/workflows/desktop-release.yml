@@ -72,8 +72,10 @@ jobs:
           for tar in build/linux-*/*.tar.gz; do
             tar tzf "$tar" | grep -F 'openvpn-desktop-helper' >/dev/null
           done
-          test -f build/linux-amd64/update-linux-amd64.json
-          test -f build/linux-arm64/update-linux-arm64.json
+          if [[ -n "${MYGO_UPDATER_PRIVATE_KEY:-}" ]]; then
+            test -f build/linux-amd64/update-linux-amd64.json
+            test -f build/linux-arm64/update-linux-arm64.json
+          fi
       - uses: actions/upload-artifact@v7
         with:
           name: desktop-linux
@@ -146,7 +148,9 @@ jobs:
           ls build/windows-amd64/*-setup-*.exe
           test -f build/windows-amd64/openvpn-desktop-helper.exe
           test -f build/windows-amd64/OpenVPN\ Desktop.exe
-          test -f build/windows-amd64/update-windows-amd64.json
+          if [[ -n "${MYGO_UPDATER_PRIVATE_KEY:-}" ]]; then
+            test -f build/windows-amd64/update-windows-amd64.json
+          fi
       - name: Smoke-test the real Windows service
         shell: pwsh
         working-directory: desktop
@@ -240,7 +244,9 @@ jobs:
           set -e
           test -d "build/darwin-universal/OpenVPN Desktop.app"
           test -f "build/darwin-universal/OpenVPN Desktop.app/Contents/Resources/openvpn-desktop-helper"
-          test -f build/darwin-universal/update-darwin-universal.json
+          if [[ -n "${MYGO_UPDATER_PRIVATE_KEY:-}" ]]; then
+            test -f build/darwin-universal/update-darwin-universal.json
+          fi
           ls build/darwin-universal/*.dmg
       - name: Install OpenVPN for the service smoke test
         run: brew install openvpn && brew link --force openvpn
